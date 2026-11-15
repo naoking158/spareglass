@@ -301,3 +301,49 @@ func TestStreamsVideo(t *testing.T) {
 		t.Fatal("no video received")
 	}
 }
+
+func TestFallbackSizes(t *testing.T) {
+	got := fallbackSizes(3840, 2160)
+	want := [][2]int{{3840, 2160}, {2560, 1440}, {1920, 1080}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("4K: got %v, want %v", got, want)
+	}
+	if got := fallbackSizes(1180, 820); len(got) != 1 {
+		t.Fatalf("small screens need no fallback, got %v", got)
+	}
+	if got := fallbackSizes(1440, 2560); fmt.Sprint(got[len(got)-1]) != "[1080 1920]" {
+		t.Fatalf("portrait: got %v", got)
+	}
+}
+
+// refusingProvider rejects anything larger than 1920x1080.
+type refusingProvider struct{ fakeProvider }
+
+func (r *refusingProvider) Open(s vdisplay.Spec) (vdisplay.Display, error) {
+	if s.Width > 1920 {
+		return nil, fmt.Errorf("never became active")
+	}
+	return r.fakeProvider.Open(s)
+}
+
+func TestFallsBackToSmallerDisplay(t *testing.T) {
+	rp := &refusingProvider{fakeProvider{opened: make(chan vdisplay.Spec, 1)}}
+	m := NewManager(config.Default(), rp, func(string, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s := &Session{m: m, slot: 0, log: m.log}
+	s.ensureDisplay(controlMsg{Type: "hello", Width: 3840, Height: 2160, DPR: 1})
+	select {
+	case spec := <-rp.opened:
+		if spec.Width != 1920 || spec.Height != 1080 {
+			t.Fatalf("opened %dx%d, want 1920x1080", spec.Width, spec.Height)
+		}
+	default:
+		t.Fatal("no display opened")
+	}
+	// The same size again must not trigger another round of attempts.
+	s.ensureDisplay(controlMsg{Type: "resize", Width: 3840, Height: 2160, DPR: 1})
+	select {
+	case <-rp.opened:
+		t.Fatal("repeated request should be ignored")
+	default:
+	}
+}

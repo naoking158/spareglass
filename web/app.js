@@ -211,6 +211,9 @@ function handleStatus(msg) {
     case "display-only":
       setStatus(`Display ${slot} was created on the host (${msg.width}×${msg.height}), but it cannot be streamed: ${msg.detail}`, true);
       break;
+    case "retrying":
+      setStatus(msg.detail);
+      break;
     case "no-display":
       setStatus(`Connected, but the host cannot create a display: ${msg.detail}`, true);
       break;

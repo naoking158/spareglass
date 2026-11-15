@@ -57,6 +57,9 @@ type Session struct {
 	display  vdisplay.Display
 	pipeline media.Pipeline
 	closed   bool
+	// requested is the last size the client asked for, so a repeated
+	// hello/resize with the same size is not retried (each failure costs ~5s).
+	requested [2]int
 }
 
 // Create answers a browser offer for display slot (0-based) and returns the
@@ -214,27 +217,46 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	}
 
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || s.requested == [2]int{w, h} {
 		s.mu.Unlock()
 		return
 	}
-	if d := s.display; d != nil && d.Spec().Width == w && d.Spec().Height == h {
-		s.mu.Unlock()
-		return
-	}
+	s.requested = [2]int{w, h}
 	s.stopDisplayLocked()
 	s.mu.Unlock()
 
-	spec := vdisplay.Spec{
-		Name:      fmt.Sprintf("spareglass %d", s.slot+1), // stable per slot
-		Width:     w,
-		Height:    h,
-		RefreshHz: float64(s.m.cfg.FPS),
+	// macOS can refuse a display (too large, or no free display slot on
+	// chips that support few external displays). Try smaller sizes with the
+	// same aspect ratio before giving up; the browser scales the video.
+	var (
+		d       vdisplay.Display
+		lastErr error
+	)
+	for _, size := range fallbackSizes(w, h) {
+		spec := vdisplay.Spec{
+			Name:      fmt.Sprintf("spareglass %d", s.slot+1), // stable per slot
+			Width:     size[0],
+			Height:    size[1],
+			RefreshHz: float64(s.m.cfg.FPS),
+		}
+		var err error
+		d, err = s.m.provider.Open(spec)
+		if err == nil {
+			break
+		}
+		lastErr = err
+		s.log.Warn("virtual display refused", "size", fmt.Sprintf("%dx%d", size[0], size[1]), "err", err)
+		if errors.Is(err, vdisplay.ErrNotImplemented) {
+			break
+		}
+		s.send(statusMsg{Type: "status", State: "retrying", Detail: fmt.Sprintf("The host refused a %d×%d display. Trying a smaller size…", size[0], size[1])})
 	}
-	d, err := s.m.provider.Open(spec)
-	if err != nil {
-		s.log.Warn("virtual display unavailable", "err", err)
-		s.send(statusMsg{Type: "status", State: "no-display", Detail: err.Error()})
+	if d == nil {
+		detail := lastErr.Error()
+		if !errors.Is(lastErr, vdisplay.ErrNotImplemented) {
+			detail = "macOS would not add another display. Macs with base M-series chips allow few external displays: disconnect a monitor and try again. (" + detail + ")"
+		}
+		s.send(statusMsg{Type: "status", State: "no-display", Detail: detail})
 		return
 	}
 	s.mu.Lock()
@@ -245,6 +267,7 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	}
 	s.display = d
 	s.mu.Unlock()
+	w, h = d.Spec().Width, d.Spec().Height
 	s.log.Info("virtual display created", "id", d.ID(), "size", fmt.Sprintf("%dx%d", w, h))
 
 	p, err := s.m.newPipeline(d.ID(), s.m.cfg.FPS, s.m.cfg.BitrateKbps)
@@ -349,4 +372,26 @@ func newID() string {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// fallbackSizes returns the requested size followed by smaller sizes with
+// the same aspect ratio that fit 2560x1440 and 1920x1080, without repeats.
+func fallbackSizes(w, h int) [][2]int {
+	sizes := [][2]int{{w, h}}
+	for _, box := range [][2]int{{2560, 1440}, {1920, 1080}} {
+		bw, bh := box[0], box[1]
+		if h > w { // portrait screens: fit a portrait box
+			bw, bh = bh, bw
+		}
+		scale := math.Min(float64(bw)/float64(w), float64(bh)/float64(h))
+		if scale >= 1 {
+			continue
+		}
+		fw := int(float64(w)*scale) &^ 1 // even sizes suit video encoders
+		fh := int(float64(h)*scale) &^ 1
+		if last := sizes[len(sizes)-1]; last != [2]int{fw, fh} {
+			sizes = append(sizes, [2]int{fw, fh})
+		}
+	}
+	return sizes
 }
