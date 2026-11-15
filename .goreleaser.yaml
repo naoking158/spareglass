@@ -1,0 +1,53 @@
+# GoReleaser v2 — builds the binaries attached to each GitHub Release.
+# Triggered by .github/workflows/release.yml when a v* tag is pushed.
+#
+# Everything is pure Go today (CGO_ENABLED=0), so one Linux runner can
+# cross-compile all targets. Once capture/encode needs cgo
+# (ScreenCaptureKit, VideoToolbox, Media Foundation, PipeWire), switch to
+# building on native runners per OS — see docs/design.md "Release".
+version: 2
+
+project_name: spareglass
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: spareglass
+    main: ./cmd/spareglass
+    binary: spareglass
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, windows, linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+
+release:
+  draft: false
+  prerelease: auto
