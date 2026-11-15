@@ -46,11 +46,16 @@ Host (Go 単一バイナリ)
   サイズ変更時は作り直し。
 - クライアントは `jitterBufferTarget = 0` で遅延を詰める。
 
-### ペアリング・セキュリティ（internal/pairing）
+### URL とペアリング（internal/pairing）
 
-- 起動ごとにランダムトークン（設定で固定も可）。URL フラグメント `#t=` に入れ、リクエスト行やログに出さない。
-- `/api/session` は Bearer トークン必須。メディアは DTLS-SRTP で暗号化。
-- TODO: 新規端末の接続をホスト側で承認する UI。
+- URL は手打ち前提で短くする: `http://<ホストIP>/<ディスプレイ番号>`。ポートは既定で 80（macOS / Windows は一般ユーザーで可）、使えなければ 7878。
+- `.local` 名（mDNS）は今回は見送り。素の `foo-bar` はルーター DNS か hosts 設定が必要なためアプリ単体では不可。
+- 初回: ブラウザが `POST /api/pair` → 4 桁コードを表示 → ホストのターミナルに「許可しますか? [y/N]」→ `y` で承認。
+  ブラウザは `GET /api/pair/{id}` をポーリングし、承認されたら device id と secret を一度だけ受け取って localStorage に保存。
+- 2 回目以降: `Authorization: Device <id>:<secret>` で `POST /api/session`。ホストは secret の SHA-256 だけを `devices.json` に保存。
+- 未応答のリクエストは 2 分で失効、同時待ちは最大 4 件。
+- `spareglass devices [list|revoke ID|clear]`。ホストはファイル更新を検知して再読込するので、起動中でも即反映。
+- 承認の 1 タップではフルスクリーンにできない（ユーザー操作が非同期処理で失われる）ため、承認後にもう一度 Connect を押す。
 
 ## 制御メッセージ（DataChannel "control"）
 

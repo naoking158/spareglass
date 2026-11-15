@@ -2,17 +2,21 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/pion/webrtc/v4"
 
 	"github.com/naoking158/spareglass/internal/config"
+	"github.com/naoking158/spareglass/internal/pairing"
 	"github.com/naoking158/spareglass/internal/vdisplay"
 )
 
@@ -33,36 +37,112 @@ func (d fakeDisplay) ID() string          { return "fake-1" }
 func (d fakeDisplay) Spec() vdisplay.Spec { return d.s }
 func (d fakeDisplay) Close() error        { return nil }
 
-func newTestServer(t *testing.T, p vdisplay.Provider) (*httptest.Server, *Server) {
+func newTestServer(t *testing.T, p vdisplay.Provider, approve bool) *httptest.Server {
 	t.Helper()
+	store, err := pairing.OpenStore(filepath.Join(t.TempDir(), "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	pairer := pairing.NewPairer(ctx, store, pairing.ApproverFunc(func(context.Context, *pairing.Request) bool { return approve }))
 	cfg := config.Default()
-	s := New(Options{Config: cfg, Token: "test-token-0123456789", Provider: p, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	s := New(Options{Config: cfg, Pairer: pairer, Provider: p, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	ts := httptest.NewServer(s.Handler())
-	t.Cleanup(func() { ts.Close(); s.Close() })
-	return ts, s
+	t.Cleanup(func() { ts.Close(); s.Close(); cancel() })
+	return ts
 }
 
-func TestSessionRequiresToken(t *testing.T) {
-	ts, _ := newTestServer(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)})
-	res, err := http.Post(ts.URL+"/api/session", "application/json", bytes.NewBufferString(`{"sdp":"x"}`))
+func postJSON(t *testing.T, url, auth string, v any) *http.Response {
+	t.Helper()
+	b, _ := json.Marshal(v)
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", res.StatusCode)
+	return res
+}
+
+// pairDevice runs the pairing flow and returns an Authorization header value.
+func pairDevice(t *testing.T, base string) string {
+	t.Helper()
+	res := postJSON(t, base+"/api/pair", "", pairRequest{Name: "Test on iPad", Slot: 1})
+	if res.StatusCode != 200 {
+		t.Fatalf("pair start: %d", res.StatusCode)
+	}
+	var start pairStartResponse
+	_ = json.NewDecoder(res.Body).Decode(&start)
+	if len(start.Code) != 4 {
+		t.Fatalf("code = %q", start.Code)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		r, err := http.Get(base + "/api/pair/" + start.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var st pairStatusResponse
+		_ = json.NewDecoder(r.Body).Decode(&st)
+		switch st.Status {
+		case pairing.StateApproved:
+			return fmt.Sprintf("Device %s:%s", st.DeviceID, st.Secret)
+		case pairing.StateDenied, pairing.StateExpired:
+			t.Fatalf("pairing ended as %s", st.Status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("pairing never finished")
+	return ""
+}
+
+func TestRoutes(t *testing.T) {
+	ts := newTestServer(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, true)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	cases := map[string]int{"/": 302, "/1": 200, "/2": 200, "/3": 404, "/x": 404, "/app.js": 200, "/style.css": 200}
+	for path, want := range cases {
+		res, err := client.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != want {
+			t.Errorf("GET %s = %d, want %d", path, res.StatusCode, want)
+		}
 	}
 }
 
-func TestServesClient(t *testing.T) {
-	ts, _ := newTestServer(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)})
-	res, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
+func TestSessionRequiresPairedDevice(t *testing.T) {
+	ts := newTestServer(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, true)
+	for _, auth := range []string{"", "Device nope:nope", "Bearer x"} {
+		res := postJSON(t, ts.URL+"/api/session", auth, sessionRequest{SDP: "x", Slot: 1})
+		if res.StatusCode != http.StatusUnauthorized {
+			t.Errorf("auth %q: status = %d, want 401", auth, res.StatusCode)
+		}
 	}
-	b, _ := io.ReadAll(res.Body)
-	if res.StatusCode != 200 || !bytes.Contains(b, []byte("app.js")) {
-		t.Fatalf("unexpected index: %d", res.StatusCode)
+}
+
+func TestDeniedPairing(t *testing.T) {
+	ts := newTestServer(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, false)
+	res := postJSON(t, ts.URL+"/api/pair", "", pairRequest{Name: "Stranger", Slot: 1})
+	var start pairStartResponse
+	_ = json.NewDecoder(res.Body).Decode(&start)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		r, _ := http.Get(ts.URL + "/api/pair/" + start.ID)
+		var st pairStatusResponse
+		_ = json.NewDecoder(r.Body).Decode(&st)
+		if st.Status == pairing.StateDenied {
+			if st.Secret != "" {
+				t.Fatal("denied request must not carry a secret")
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
+	t.Fatal("request was never denied")
 }
 
 // TestNegotiateAndHello plays the browser's part with a Pion peer:
@@ -70,7 +150,8 @@ func TestServesClient(t *testing.T) {
 // make the host open a virtual display at the client's size.
 func TestNegotiateAndHello(t *testing.T) {
 	fp := &fakeProvider{opened: make(chan vdisplay.Spec, 1)}
-	ts, _ := newTestServer(t, fp)
+	ts := newTestServer(t, fp, true)
+	auth := pairDevice(t, ts.URL)
 
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
@@ -103,13 +184,7 @@ func TestNegotiateAndHello(t *testing.T) {
 	}
 	<-gathered
 
-	body, _ := json.Marshal(sessionRequest{SDP: pc.LocalDescription().SDP})
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/session", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer test-token-0123456789")
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := postJSON(t, ts.URL+"/api/session", auth, sessionRequest{SDP: pc.LocalDescription().SDP, Slot: 1})
 	if res.StatusCode != 200 {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d: %s", res.StatusCode, b)
@@ -120,6 +195,11 @@ func TestNegotiateAndHello(t *testing.T) {
 	}
 	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: sr.SDP}); err != nil {
 		t.Fatal(err)
+	}
+
+	// The same display cannot be taken twice.
+	if again := postJSON(t, ts.URL+"/api/session", auth, sessionRequest{SDP: pc.LocalDescription().SDP, Slot: 1}); again.StatusCode != http.StatusConflict {
+		t.Fatalf("second session on display 1: %d, want 409", again.StatusCode)
 	}
 
 	select {

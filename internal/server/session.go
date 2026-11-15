@@ -20,8 +20,8 @@ import (
 	"github.com/naoking158/spareglass/internal/vdisplay"
 )
 
-// ErrTooManyClients is returned when every display slot is taken.
-var ErrTooManyClients = errors.New("all display slots are in use")
+// ErrSlotInUse is returned when another browser already shows that display.
+var ErrSlotInUse = errors.New("that display is already in use by another browser")
 
 // Manager owns the WebRTC sessions, one per connected display.
 type Manager struct {
@@ -55,14 +55,14 @@ type Session struct {
 	closed   bool
 }
 
-// Create answers a browser offer and returns the session id and answer SDP.
-func (m *Manager) Create(ctx context.Context, offer string) (string, string, error) {
-	slot := m.allocSlot()
-	if slot < 0 {
-		return "", "", ErrTooManyClients
+// Create answers a browser offer for display slot (0-based) and returns the
+// session id and answer SDP.
+func (m *Manager) Create(ctx context.Context, offer string, slot int, device string) (string, string, error) {
+	if !m.takeSlot(slot) {
+		return "", "", ErrSlotInUse
 	}
 	id := newID()
-	s := &Session{id: id, slot: slot, m: m, log: m.log.With("session", id, "slot", slot+1)}
+	s := &Session{id: id, slot: slot, m: m, log: m.log.With("session", id, "display", slot+1, "device", device)}
 
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{}) // LAN only: no STUN/TURN
 	if err != nil {
@@ -144,16 +144,14 @@ func (m *Manager) CloseAll() {
 	}
 }
 
-func (m *Manager) allocSlot() int {
+func (m *Manager) takeSlot(i int) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for i, used := range m.slots {
-		if !used {
-			m.slots[i] = true
-			return i
-		}
+	if i < 0 || i >= len(m.slots) || m.slots[i] {
+		return false
 	}
-	return -1
+	m.slots[i] = true
+	return true
 }
 
 func (m *Manager) freeSlot(i int) {

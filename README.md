@@ -21,15 +21,19 @@ host (this computer)                           display device
 ┌──────────────────────────────┐              ┌──────────────┐
 │ virtual display ─▶ capture   │   WebRTC     │ browser      │
 │       ─▶ H.264 encode ───────┼─────────────▶│ <video>      │
-│ HTTP server + pairing token  │◀─────────────┤ screen size  │
+│ HTTP server + pairing (y/N) │◀─────────────┤ screen size  │
 └──────────────────────────────┘   LAN only   └──────────────┘
 ```
 
-1. `spareglass` starts a small web server and prints a URL and QR code.
-2. The display device opens it and reports its screen size.
-3. The host creates a virtual monitor of that size — the OS treats it as a real
+1. `spareglass` starts a small web server and prints a short URL such as
+   `http://192.168.1.20/1` (and a QR code).
+2. The display device opens it. The first time, it shows a 4-digit code and
+   the host asks in its terminal whether to allow that browser. Once allowed,
+   the browser is remembered and later visits connect right away.
+3. The display device reports its screen size.
+4. The host creates a virtual monitor of that size — the OS treats it as a real
    one, so you can drag windows onto it.
-4. The monitor is captured, encoded and streamed to the browser over WebRTC.
+5. The monitor is captured, encoded and streamed to the browser over WebRTC.
 
 ## Install
 
@@ -47,10 +51,14 @@ spareglass            # start the host (same as "spareglass serve")
 spareglass doctor     # show what works on this machine
 spareglass config init   # write a config file with the defaults
 spareglass config path   # where that file lives
+spareglass devices        # browsers allowed to connect
+spareglass devices revoke ID
+spareglass devices clear
 ```
 
-Then open the printed URL on the other device (or scan the QR code) and tap
-**Connect**. Both devices must be on the same network.
+Then type the printed URL on the other device (e.g. `http://192.168.1.20/1`),
+tap **Connect**, and answer `y` in the host terminal. `/1`, `/2`, … pick which
+virtual display that browser shows. Both devices must be on the same network.
 
 ### Settings
 
@@ -58,19 +66,19 @@ Flags override the config file (`spareglass config path`).
 
 | Flag | Config key | Default | Meaning |
 |---|---|---|---|
-| `--addr` | `addr` | `:7878` | Listen address |
+| `--addr` | `addr` | port 80, else 7878 | Listen address |
 | `--fps` | `fps` | `60` | Target frame rate |
 | `--bitrate` | `bitrate_kbps` | `12000` | Video bitrate per display (kbps) |
 | `--max-clients` | `max_clients` | `2` | Displays connected at once |
 | `--render-scale` | `render_scale` | `1` | Display size vs. the client's CSS pixels (`1` legible, `2` sharp) |
-| `--token` | `token` | random | Fixed pairing token, for a bookmarkable URL |
 
 ## Security
 
-Anyone with the pairing link can see the virtual display, so treat it like a
-password. The token is kept in the URL fragment and never sent in request
-lines; media is encrypted with DTLS-SRTP. Run spareglass only on networks you
-trust.
+Only browsers you approve in the host terminal can connect. Each approved
+browser holds a random credential in localStorage; the host keeps only its
+SHA-256 in `devices.json` next to the config file. Revoke one with
+`spareglass devices revoke ID` (applies to a running host). Media is
+encrypted with DTLS-SRTP. Run spareglass only on networks you trust.
 
 ## Development
 

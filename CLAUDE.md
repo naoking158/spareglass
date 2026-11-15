@@ -7,7 +7,8 @@
   (macOS: a mode change makes a CGVirtualDisplay unremovable). Use stable names
   ("spareglass N"); macOS stores an ICC profile per monitor identity.
 - `internal/media`: capture → H.264 encode. Not implemented; will need cgo.
-- `internal/server`: HTTP + non-trickle WebRTC signaling (POST /api/session).
+- `internal/pairing`: browser approval (terminal y/N) and remembered devices (devices.json).
+- `internal/server`: routes /{n} (display n), /api/pair, /api/session (non-trickle WebRTC).
   `server_test.go` negotiates a real Pion peer; keep it green.
 - `web/`: embedded browser client (plain HTML/JS, no build step).
 - Design notes (Japanese): docs/design.md.

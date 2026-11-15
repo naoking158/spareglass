@@ -1,20 +1,113 @@
 // spareglass browser client.
-// Negotiates one WebRTC session with the host and shows the virtual display.
+// URL: http://<host>/<display number>. A browser seen for the first time asks
+// the host to approve it; the credential it gets back is kept in localStorage
+// so later visits connect straight away.
 "use strict";
 
 const $ = (id) => document.getElementById(id);
 const video = $("screen");
 const statusEl = $("status");
+const codeEl = $("code");
 const button = $("connect");
 
-const token = new URLSearchParams(location.hash.slice(1)).get("t");
+const slot = parseInt(location.pathname.slice(1), 10) || 1;
+const STORAGE_KEY = "spareglass.device";
 
 let pc = null;
 let control = null;
 
+$("title").textContent = `Use this screen as display ${slot}`;
+document.title = `spareglass · display ${slot}`;
+
 function setStatus(text, isError = false) {
   statusEl.textContent = text;
   statusEl.classList.toggle("error", isError);
+}
+
+function showCode(code) {
+  codeEl.hidden = !code;
+  codeEl.textContent = code || "";
+}
+
+function loadDevice() {
+  try {
+    const d = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    return d && d.id && d.secret ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDevice(d) {
+  try {
+    if (d) localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
+    else localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Private browsing may block storage; pairing then lasts for this page only.
+  }
+}
+
+let device = loadDevice();
+
+function browserName() {
+  const ua = navigator.userAgent;
+  const browser =
+    /Edg\//.test(ua) ? "Edge" :
+    /Firefox\//.test(ua) ? "Firefox" :
+    /Chrome\//.test(ua) ? "Chrome" :
+    /Safari\//.test(ua) ? "Safari" : "Browser";
+  const os =
+    /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? "iPad" :
+    /iPhone/.test(ua) ? "iPhone" :
+    /Android/.test(ua) ? "Android" :
+    /Windows/.test(ua) ? "Windows" :
+    /Mac OS X/.test(ua) ? "Mac" :
+    /CrOS/.test(ua) ? "ChromeOS" :
+    /Linux/.test(ua) ? "Linux" : "device";
+  return `${browser} on ${os}`;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function api(path, options = {}) {
+  const res = await fetch(path, options);
+  const body = await res.json().catch(() => ({}));
+  return { res, body };
+}
+
+// pair asks the host to approve this browser and waits for the answer.
+async function pair() {
+  const { res, body } = await api("/api/pair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: browserName(), slot }),
+  });
+  if (!res.ok) throw new Error(body.error || `Host answered ${res.status}`);
+
+  showCode(body.code);
+  setStatus("Approve this code on the host computer: answer y in the spareglass terminal.");
+
+  const deadline = Date.now() + 2 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await sleep(1000);
+    const st = await api(`/api/pair/${body.id}`);
+    if (!st.res.ok) throw new Error(st.body.error || "Pairing request was lost. Try again.");
+    switch (st.body.status) {
+      case "approved":
+        showCode(null);
+        device = { id: st.body.device_id, secret: st.body.secret };
+        saveDevice(device);
+        return;
+      case "denied":
+        showCode(null);
+        throw new Error("The host declined this browser.");
+      case "expired":
+        showCode(null);
+        throw new Error("Nobody answered on the host. Tap Connect to ask again.");
+    }
+  }
+  showCode(null);
+  throw new Error("Nobody answered on the host. Tap Connect to ask again.");
 }
 
 function screenInfo(type) {
@@ -40,15 +133,9 @@ function waitForIce(peer, timeoutMs = 3000) {
   });
 }
 
-async function connect() {
-  button.disabled = true;
-  setStatus("Connecting…");
+class NotPaired extends Error {}
 
-  // Full screen needs a user gesture, so request it first.
-  if (document.documentElement.requestFullscreen) {
-    document.documentElement.requestFullscreen().catch(() => {});
-  }
-
+async function startSession() {
   pc = new RTCPeerConnection();
   pc.addTransceiver("video", { direction: "recvonly" });
 
@@ -58,8 +145,8 @@ async function connect() {
   };
 
   pc.onconnectionstatechange = () => {
-    if (pc.connectionState === "failed" || pc.connectionState === "closed") {
-      disconnect("The connection to the host was lost. Connect again to retry.", true);
+    if (pc && (pc.connectionState === "failed" || pc.connectionState === "closed")) {
+      disconnect("The connection to the host was lost. Tap Connect to retry.", true);
     }
   };
 
@@ -71,16 +158,48 @@ async function connect() {
   await pc.setLocalDescription(offer);
   await waitForIce(pc);
 
-  const res = await fetch("/api/session", {
+  const { res, body } = await api("/api/session", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ sdp: pc.localDescription.sdp }),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Device ${device.id}:${device.secret}`,
+    },
+    body: JSON.stringify({ sdp: pc.localDescription.sdp, slot }),
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(body.error || `Host answered ${res.status}`);
-  }
+  if (res.status === 401) throw new NotPaired();
+  if (!res.ok) throw new Error(body.error || `Host answered ${res.status}`);
   await pc.setRemoteDescription({ type: "answer", sdp: body.sdp });
+}
+
+async function connect() {
+  button.disabled = true;
+
+  if (!device) {
+    setStatus("Asking the host…");
+    await pair();
+    // The tap that started pairing can no longer open full screen, so ask for one more.
+    button.disabled = false;
+    setStatus("Approved. Tap Connect to start.");
+    return;
+  }
+
+  setStatus("Connecting…");
+  if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+  try {
+    await startSession();
+  } catch (err) {
+    if (err instanceof NotPaired) {
+      saveDevice(null);
+      device = null;
+      closePeer();
+      button.disabled = false;
+      setStatus("The host no longer knows this browser. Tap Connect to pair again.", true);
+      return;
+    }
+    throw err;
+  }
 }
 
 function handleStatus(msg) {
@@ -90,7 +209,7 @@ function handleStatus(msg) {
       document.body.classList.add("live");
       break;
     case "display-only":
-      setStatus(`Display created on the host (${msg.width}×${msg.height}). Video streaming is not implemented yet.`);
+      setStatus(`Display ${slot} created on the host (${msg.width}×${msg.height}). Video streaming is not implemented yet.`);
       break;
     case "no-display":
       setStatus(`Connected, but the host cannot create a display: ${msg.detail}`, true);
@@ -100,12 +219,17 @@ function handleStatus(msg) {
   }
 }
 
-function disconnect(message, isError = false) {
-  document.body.classList.remove("live");
+function closePeer() {
   if (pc) pc.close();
   pc = null;
   control = null;
   video.srcObject = null;
+}
+
+function disconnect(message, isError = false) {
+  document.body.classList.remove("live");
+  closePeer();
+  showCode(null);
   button.disabled = false;
   setStatus(message, isError);
 }
@@ -120,12 +244,8 @@ function onResize() {
   }, 400);
 }
 
-if (!token) {
-  button.disabled = true;
-  setStatus("This page needs a pairing link. Open the URL or scan the QR code shown by spareglass on the host.", true);
-} else {
-  button.addEventListener("click", () => {
-    connect().catch((err) => disconnect(`Could not connect: ${err.message}`, true));
-  });
-  window.addEventListener("resize", onResize);
-}
+setStatus(device ? "This browser is paired. Tap Connect." : "Tap Connect, then approve this browser on the host.");
+button.addEventListener("click", () => {
+  connect().catch((err) => disconnect(err.message || String(err), true));
+});
+window.addEventListener("resize", onResize);

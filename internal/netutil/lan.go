@@ -7,7 +7,8 @@ import (
 )
 
 // LANURLs returns http URLs for each private IPv4 address of this machine.
-func LANURLs(port int, fragment string) []string {
+// Port 80 is left out of the URL.
+func LANURLs(port int, path string) []string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return nil
@@ -22,7 +23,11 @@ func LANURLs(port int, fragment string) []string {
 		if ip == nil || ip.IsLoopback() || !ip.IsPrivate() {
 			continue
 		}
-		urls = append(urls, fmt.Sprintf("http://%s:%d/%s", ip, port, fragment))
+		host := ip.String()
+		if port != 80 {
+			host = fmt.Sprintf("%s:%d", ip, port)
+		}
+		urls = append(urls, "http://"+host+path)
 	}
 	return urls
 }
