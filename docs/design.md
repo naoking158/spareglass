@@ -29,6 +29,12 @@ Host (Go 単一バイナリ)
 
 ### キャプチャ＋エンコード（internal/media）
 
+**現状（暫定）**: macOS は ffmpeg を子プロセスで起動する。`-f avfoundation -i "Capture screen N"`（N は CGGetActiveDisplayList 上の位置）→ `h264_videotoolbox`（Constrained Baseline、B-frame なし、GOP 1 秒、IDR ごとに SPS/PPS）→ stdout の Annex-B を access unit 単位に分割して Pion に渡す。
+制約: access unit の区切りが次フレーム到着で確定するため最大 1 フレーム遅延、PLI でキーフレームを要求できない（GOP 1 秒で代替）、ffmpeg と画面収録権限が必要。
+`serve --test-pattern` で ffmpeg のテストパターンを流せる（ブラウザ側の切り分け用）。
+
+**本命（次段）**:
+
 - darwin: ScreenCaptureKit → VideoToolbox
 - windows: Windows.Graphics.Capture → Media Foundation（または NVENC/AMF/QSV）
 - linux: PipeWire（portal の node）→ VA-API / NVENC

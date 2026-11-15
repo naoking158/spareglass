@@ -16,6 +16,7 @@ import (
 	"github.com/pion/webrtc/v4"
 
 	"github.com/naoking158/spareglass/internal/config"
+	"github.com/naoking158/spareglass/internal/media"
 	"github.com/naoking158/spareglass/internal/pairing"
 	"github.com/naoking158/spareglass/internal/vdisplay"
 )
@@ -37,7 +38,7 @@ func (d fakeDisplay) ID() string          { return "fake-1" }
 func (d fakeDisplay) Spec() vdisplay.Spec { return d.s }
 func (d fakeDisplay) Close() error        { return nil }
 
-func newTestServer(t *testing.T, p vdisplay.Provider, approve bool) *httptest.Server {
+func newTestServer(t *testing.T, p vdisplay.Provider, approve bool, factory ...media.Factory) *httptest.Server {
 	t.Helper()
 	store, err := pairing.OpenStore(filepath.Join(t.TempDir(), "devices.json"))
 	if err != nil {
@@ -46,7 +47,11 @@ func newTestServer(t *testing.T, p vdisplay.Provider, approve bool) *httptest.Se
 	ctx, cancel := context.WithCancel(context.Background())
 	pairer := pairing.NewPairer(ctx, store, pairing.ApproverFunc(func(context.Context, *pairing.Request) bool { return approve }))
 	cfg := config.Default()
-	s := New(Options{Config: cfg, Pairer: pairer, Provider: p, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	var f media.Factory
+	if len(factory) > 0 {
+		f = factory[0]
+	}
+	s := New(Options{Config: cfg, Pairer: pairer, Provider: p, NewPipeline: f, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { ts.Close(); s.Close(); cancel() })
 	return ts
@@ -217,5 +222,82 @@ func TestNegotiateAndHello(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("no status from host")
+	}
+}
+
+// TestStreamsVideo checks the whole media path with ffmpeg's test pattern:
+// pipeline → access units → Pion track → RTP at a browser-like peer.
+func TestStreamsVideo(t *testing.T) {
+	if _, err := media.FFmpegPath(); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+	fp := &fakeProvider{opened: make(chan vdisplay.Spec, 1)}
+	pattern := func(_ string, fps, _ int) (media.Pipeline, error) {
+		return media.NewFFmpegPipeline(media.TestPatternArgs(320, 240, fps), fps)
+	}
+	ts := newTestServer(t, fp, true, pattern)
+	auth := pairDevice(t, ts.URL)
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	_, _ = pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly})
+	dc, _ := pc.CreateDataChannel("control", nil)
+	dc.OnOpen(func() {
+		b, _ := json.Marshal(controlMsg{Type: "hello", Width: 640, Height: 480, DPR: 1})
+		_ = dc.SendText(string(b))
+	})
+
+	type result struct {
+		mime     string
+		packets  int
+		sawStart bool
+	}
+	done := make(chan result, 1)
+	pc.OnTrack(func(tr *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+		r := result{mime: tr.Codec().MimeType}
+		for r.packets < 30 {
+			pkt, _, err := tr.ReadRTP()
+			if err != nil {
+				break
+			}
+			r.packets++
+			if len(pkt.Payload) > 0 {
+				typ := pkt.Payload[0] & 0x1f
+				if typ == 7 || typ == 24 || typ == 28 || typ == 5 {
+					r.sawStart = true
+				}
+			}
+		}
+		done <- r
+	})
+
+	offer, _ := pc.CreateOffer(nil)
+	gathered := webrtc.GatheringCompletePromise(pc)
+	_ = pc.SetLocalDescription(offer)
+	<-gathered
+	res := postJSON(t, ts.URL+"/api/session", auth, sessionRequest{SDP: pc.LocalDescription().SDP, Slot: 1})
+	if res.StatusCode != 200 {
+		t.Fatalf("session: %d", res.StatusCode)
+	}
+	var sr sessionResponse
+	_ = json.NewDecoder(res.Body).Decode(&sr)
+	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: sr.SDP}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case r := <-done:
+		if r.mime != webrtc.MimeTypeH264 {
+			t.Fatalf("codec = %s, want H264", r.mime)
+		}
+		if r.packets < 30 || !r.sawStart {
+			t.Fatalf("received %d packets, keyframe/SPS seen: %v", r.packets, r.sawStart)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("no video received")
 	}
 }

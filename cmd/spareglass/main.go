@@ -20,6 +20,7 @@ import (
 
 	"github.com/naoking158/spareglass/internal/config"
 	"github.com/naoking158/spareglass/internal/doctor"
+	"github.com/naoking158/spareglass/internal/media"
 	"github.com/naoking158/spareglass/internal/netutil"
 	"github.com/naoking158/spareglass/internal/pairing"
 	"github.com/naoking158/spareglass/internal/server"
@@ -93,6 +94,7 @@ func runServe(args []string) error {
 	fs.IntVar(&cfg.MaxClients, "max-clients", cfg.MaxClients, "maximum number of connected displays")
 	fs.Float64Var(&cfg.RenderScale, "render-scale", cfg.RenderScale, "virtual display size relative to the client's CSS pixels (1 = legible, devicePixelRatio = sharp)")
 	verbose := fs.Bool("v", false, "verbose logging")
+	testPattern := fs.Bool("test-pattern", false, "stream ffmpeg's test pattern instead of the virtual display (to check the browser side)")
 	_ = fs.Parse(args)
 
 	if err := cfg.Validate(); err != nil {
@@ -129,11 +131,18 @@ func runServe(args []string) error {
 	defer stop()
 
 	pairer := pairing.NewPairer(ctx, store, pairing.NewTerminalApprover(os.Stdin, os.Stdout))
+	var factory media.Factory // nil: the platform pipeline
+	if *testPattern {
+		factory = func(_ string, fps, _ int) (media.Pipeline, error) {
+			return media.NewFFmpegPipeline(media.TestPatternArgs(1280, 720, fps), fps)
+		}
+	}
 	srv := server.New(server.Options{
-		Config:   cfg,
-		Pairer:   pairer,
-		Provider: provider,
-		Logger:   log,
+		Config:      cfg,
+		Pairer:      pairer,
+		Provider:    provider,
+		NewPipeline: factory,
+		Logger:      log,
 	})
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 

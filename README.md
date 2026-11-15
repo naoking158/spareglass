@@ -4,14 +4,14 @@ Use any device with a web browser — a tablet, an old laptop, a phone — as an
 **extended display** for your Mac, Windows or Linux computer. No app to
 install on the display device: open a link, tap Connect.
 
-> **Status: early prototype.** Pairing, the browser client and WebRTC
-> negotiation work. Virtual displays work on macOS 14+. Screen capture and
-> video streaming are not implemented yet. See [docs/design.md](docs/design.md).
+> **Status: early prototype.** Works end to end on macOS 14+ (virtual display
+> → ffmpeg capture with VideoToolbox → WebRTC → browser). Windows and Linux
+> are not done yet. See [docs/design.md](docs/design.md).
 
 | | macOS | Windows | Linux |
 |---|---|---|---|
 | Virtual display | ✅ CGVirtualDisplay | 🚧 planned (IddCx) | 🚧 planned (portal / Mutter) |
-| Capture + encode | 🚧 | 🚧 | 🚧 |
+| Capture + encode | ✅ ffmpeg (avfoundation + VideoToolbox) | 🚧 | 🚧 |
 | Browser client | ✅ | ✅ | ✅ |
 
 ## How it works
@@ -35,6 +35,13 @@ host (this computer)                           display device
    one, so you can drag windows onto it.
 5. The monitor is captured, encoded and streamed to the browser over WebRTC.
 
+## Requirements (macOS)
+
+- macOS 14 or later
+- ffmpeg: `brew install ffmpeg`
+- Screen Recording permission for the app you run spareglass from
+  (System Settings → Privacy & Security → Screen & System Audio Recording)
+
 ## Install
 
 Download the archive for your OS from
@@ -49,6 +56,7 @@ macOS: binaries are not notarized yet. If macOS blocks it, run
 ```sh
 spareglass            # start the host (same as "spareglass serve")
 spareglass doctor     # show what works on this machine
+spareglass serve --test-pattern   # stream a test pattern (checks the browser side)
 spareglass config init   # write a config file with the defaults
 spareglass config path   # where that file lives
 spareglass devices        # browsers allowed to connect

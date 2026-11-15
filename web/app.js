@@ -209,12 +209,13 @@ function handleStatus(msg) {
       document.body.classList.add("live");
       break;
     case "display-only":
-      setStatus(`Display ${slot} created on the host (${msg.width}×${msg.height}). Video streaming is not implemented yet.`);
+      setStatus(`Display ${slot} was created on the host (${msg.width}×${msg.height}), but it cannot be streamed: ${msg.detail}`, true);
       break;
     case "no-display":
       setStatus(`Connected, but the host cannot create a display: ${msg.detail}`, true);
       break;
     default:
+      if (msg.state === "error") document.body.classList.remove("live");
       setStatus(msg.detail || msg.state, msg.state === "error");
   }
 }

@@ -25,9 +25,10 @@ var ErrSlotInUse = errors.New("that display is already in use by another browser
 
 // Manager owns the WebRTC sessions, one per connected display.
 type Manager struct {
-	cfg      config.Config
-	provider vdisplay.Provider
-	log      *slog.Logger
+	cfg         config.Config
+	provider    vdisplay.Provider
+	newPipeline media.Factory
+	log         *slog.Logger
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -35,8 +36,11 @@ type Manager struct {
 }
 
 // NewManager builds a Manager.
-func NewManager(cfg config.Config, p vdisplay.Provider, log *slog.Logger) *Manager {
-	return &Manager{cfg: cfg, provider: p, log: log, sessions: map[string]*Session{}, slots: make([]bool, cfg.MaxClients)}
+func NewManager(cfg config.Config, p vdisplay.Provider, f media.Factory, log *slog.Logger) *Manager {
+	if f == nil {
+		f = media.NewPipeline
+	}
+	return &Manager{cfg: cfg, provider: p, newPipeline: f, log: log, sessions: map[string]*Session{}, slots: make([]bool, cfg.MaxClients)}
 }
 
 // Session is one connected browser and its virtual display.
@@ -80,8 +84,12 @@ func (m *Manager) Create(ctx context.Context, offer string, slot int, device str
 		return fail(fmt.Errorf("set offer: %w", err))
 	}
 
-	s.track, err = webrtc.NewTrackLocalStaticSample(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000}, "video", "spareglass")
+	// Constrained Baseline is what every browser decodes in hardware.
+	s.track, err = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
+		MimeType:    webrtc.MimeTypeH264,
+		ClockRate:   90000,
+		SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+	}, "video", "spareglass")
 	if err != nil {
 		return fail(err)
 	}
@@ -239,21 +247,33 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	s.mu.Unlock()
 	s.log.Info("virtual display created", "id", d.ID(), "size", fmt.Sprintf("%dx%d", w, h))
 
-	p, err := media.NewPipeline(d.ID(), s.m.cfg.FPS, s.m.cfg.BitrateKbps)
+	p, err := s.m.newPipeline(d.ID(), s.m.cfg.FPS, s.m.cfg.BitrateKbps)
 	if err != nil {
-		s.send(statusMsg{Type: "status", State: "display-only", Detail: "virtual display created; streaming is not implemented yet", Width: w, Height: h})
+		s.log.Warn("no capture pipeline", "err", err)
+		s.send(statusMsg{Type: "status", State: "display-only", Detail: err.Error(), Width: w, Height: h})
 		return
 	}
 	s.mu.Lock()
+	if s.closed || s.display != d {
+		s.mu.Unlock()
+		_ = p.Close()
+		return
+	}
 	s.pipeline = p
 	s.mu.Unlock()
 	s.send(statusMsg{Type: "status", State: "streaming", Width: w, Height: h})
 	go func() {
+		frames := 0
 		err := p.Run(context.Background(), func(f media.EncodedFrame) error {
+			frames++
+			if frames == 1 {
+				s.log.Info("first frame sent", "bytes", len(f.Data), "keyframe", f.Keyframe)
+			}
 			return s.track.WriteSample(sampleOf(f))
 		})
 		if err != nil {
-			s.log.Warn("pipeline stopped", "err", err)
+			s.log.Warn("capture pipeline stopped", "err", err)
+			s.send(statusMsg{Type: "status", State: "error", Detail: "capture stopped: " + err.Error()})
 		}
 	}()
 }

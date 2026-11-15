@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/naoking158/spareglass/internal/config"
+	"github.com/naoking158/spareglass/internal/media"
 	"github.com/naoking158/spareglass/internal/pairing"
 	"github.com/naoking158/spareglass/internal/vdisplay"
 	"github.com/naoking158/spareglass/web"
@@ -32,7 +33,9 @@ type Options struct {
 	Config   config.Config
 	Pairer   *pairing.Pairer
 	Provider vdisplay.Provider
-	Logger   *slog.Logger
+	// NewPipeline builds capture pipelines; nil means media.NewPipeline.
+	NewPipeline media.Factory
+	Logger      *slog.Logger
 }
 
 // Server is the HTTP front of the host.
@@ -47,7 +50,7 @@ func New(o Options) *Server {
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
-	return &Server{opts: o, sessions: NewManager(o.Config, o.Provider, o.Logger), log: o.Logger}
+	return &Server{opts: o, sessions: NewManager(o.Config, o.Provider, o.NewPipeline, o.Logger), log: o.Logger}
 }
 
 // Handler returns the HTTP routes.
