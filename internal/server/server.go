@@ -77,7 +77,27 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/pair", s.handlePairStart)
 	mux.HandleFunc("GET /api/pair/{id}", s.handlePairStatus)
 	mux.HandleFunc("POST /api/session", s.handleSession)
-	return securityHeaders(mux)
+	return s.logRequests(securityHeaders(mux))
+}
+
+// logRequests logs every request at debug level (serve -v), so "the page did
+// not load" can be told apart from "the request never reached the host".
+func (s *Server) logRequests(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		h.ServeHTTP(rec, r)
+		s.log.Debug("http", "method", r.Method, "path", r.URL.Path, "status", rec.status, "from", remoteIP(r), "ua", r.UserAgent())
+	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
 }
 
 // Close tears down every session and virtual display.
