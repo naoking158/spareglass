@@ -209,17 +209,16 @@ function handleStatus(msg) {
       document.body.classList.add("live");
       break;
     case "display-only":
-      setStatus(`Display ${slot} was created on the host (${msg.width}×${msg.height}), but it cannot be streamed: ${msg.detail}`, true);
-      break;
-    case "retrying":
-      setStatus(msg.detail);
+      disconnect(`The host can create display ${slot} but cannot stream it: ${msg.detail}`, true);
       break;
     case "no-display":
-      setStatus(`Connected, but the host cannot create a display: ${msg.detail}`, true);
+      disconnect(`The host cannot create a display: ${msg.detail}`, true);
+      break;
+    case "error":
+      disconnect(msg.detail || "The host reported an error.", true);
       break;
     default:
-      if (msg.state === "error") document.body.classList.remove("live");
-      setStatus(msg.detail || msg.state, msg.state === "error");
+      setStatus(msg.detail || msg.state);
   }
 }
 
