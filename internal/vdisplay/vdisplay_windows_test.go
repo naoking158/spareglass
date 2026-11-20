@@ -28,7 +28,7 @@ func TestVDDDisplayStreams(t *testing.T) {
 	}
 	defer p.CloseAll()
 
-	for _, size := range [][2]int{{1180, 820}, {1366, 1024}, {1180, 820}} {
+	for i, size := range [][2]int{{1180, 820}, {1366, 1024}, {1180, 820}} {
 		d, err := p.Open(Spec{Name: "spareglass 1", Width: size[0], Height: size[1], RefreshHz: 60})
 		if err != nil {
 			t.Fatalf("Open %v: %v", size, err)
@@ -41,7 +41,7 @@ func TestVDDDisplayStreams(t *testing.T) {
 			t.Fatalf("monitor after Open %v: %+v", size, m)
 		}
 		t.Logf("opened %+v", m)
-		streamFrames(t, d.ID(), fmt.Sprintf("%dx%d.h264", size[0], size[1]))
+		streamFrames(t, d.ID(), fmt.Sprintf("%d-%dx%d.h264", i+1, size[0], size[1]))
 		if err := d.Close(); err != nil {
 			t.Fatal(err)
 		}
@@ -61,12 +61,12 @@ func streamFrames(t *testing.T, id, name string) {
 		t.Fatal(err)
 	}
 	defer pl.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	n := 0
 	err = pl.Run(ctx, func(f media.EncodedFrame) error {
 		out = append(out, f.Data...)
-		if n++; n >= 30 {
+		if n++; n >= 90 {
 			return errEnough
 		}
 		return nil
