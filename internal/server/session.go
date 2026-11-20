@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"runtime"
 	"sync"
 	"time"
 
@@ -253,7 +254,7 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	}
 	if d == nil {
 		detail := lastErr.Error()
-		if !errors.Is(lastErr, vdisplay.ErrNotImplemented) {
+		if runtime.GOOS == "darwin" && !errors.Is(lastErr, vdisplay.ErrNotImplemented) {
 			detail = "macOS would not add another display. Macs with base M-series chips allow few external displays: disconnect a monitor and try again. (" + detail + ")"
 		}
 		s.send(statusMsg{Type: "status", State: "no-display", Detail: detail})

@@ -86,8 +86,89 @@ jobs:
           ! grep -q -- "--- SKIP" test.log
           grep -q -- "--- PASS: TestPipelineCapturesPrimaryMonitor" test.log
 
+  windows-vdd:
+    needs: ffmpeg-windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-windows
+          path: third_party/windows
+      - name: Install the Virtual Display Driver (pinned, hash-checked)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "vdd"; New-Item -ItemType Directory -Force $dir | Out-Null
+          gh release download 25.5.2 --repo VirtualDrivers/Virtual-Display-Driver -p "Virtual.Display.Driver-v25.05.03-setup-x64.exe" -D $dir
+          $f = Join-Path $dir "Virtual.Display.Driver-v25.05.03-setup-x64.exe"
+          $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+          "sha256: $h"
+          if ($h -ne "ca10b85babecfb636c85b3f04d2306968d4f940dd3dd35767f866207bfba846e") { throw "unexpected installer hash" }
+
+          # Windows asks "Would you like to install this device software?" even
+          # for the signed driver; on this throwaway VM the step clicks Install.
+          Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+          Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Mouse { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y); [DllImport("user32.dll")] public static extern void mouse_event(uint f, int dx, int dy, uint d, UIntPtr e); }'
+          $p = Start-Process -FilePath $f -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/LOG=$env:RUNNER_TEMP\vdd-install.log" -PassThru
+          $clicked = 0
+          $deadline = (Get-Date).AddSeconds(240)
+          while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
+            try {
+              $root = [System.Windows.Automation.AutomationElement]::RootElement
+              $w = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Windows Security")))
+              if ($w) {
+                $btn = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Install")))
+                if ($btn) {
+                  # The dialog's button has no Invoke pattern: click its centre with a real mouse event.
+                  $pt = $btn.GetClickablePoint()
+                  [Mouse]::SetCursorPos([int]$pt.X, [int]$pt.Y) | Out-Null
+                  Start-Sleep -Milliseconds 300
+                  [Mouse]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero); [Mouse]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+                  $clicked++; "clicked Install ($clicked) at " + (Get-Date -Format o); Start-Sleep -Seconds 4
+                }
+              }
+            } catch { "ui automation: $_" }
+            Start-Sleep -Milliseconds 500
+          }
+          if (-not $p.HasExited) {
+            "!! installer still running after 240 s"
+            Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+            $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save("$env:RUNNER_TEMP\hang.png")
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
+          Start-Sleep -Seconds 10
+          "--- install log (last lines)"; Get-Content "$env:RUNNER_TEMP\vdd-install.log" -ErrorAction SilentlyContinue | Select-Object -Last 12
+          "--- settings file"; Test-Path C:\VirtualDisplayDriver\vdd_settings.xml
+      - name: Virtual display tests (create, stream, resize, detach)
+        shell: bash
+        env:
+          SPAREGLASS_VDD_TEST: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p vdd-frames
+          export SPAREGLASS_VDD_FRAMES="$PWD/vdd-frames"
+          dir=$(mktemp -d)
+          cp third_party/windows/ffmpeg.exe "$dir/"
+          go test -c -o "$dir/vdisplay.test.exe" ./internal/vdisplay
+          cd "$dir" && ./vdisplay.test.exe -test.v -test.run VDD | tee test.log
+          grep -q -- "--- PASS: TestVDDDisplayStreams" test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vdd-frames
+          path: vdd-frames
+          retention-days: 7
+
   goreleaser:
-    needs: [ffmpeg-macos, ffmpeg-windows, windows-pipeline]
+    needs: [ffmpeg-macos, ffmpeg-windows, windows-pipeline, windows-vdd]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
