@@ -162,14 +162,21 @@ func (t *tailBuffer) String() string {
 	return strings.TrimSpace(string(t.buf))
 }
 
-// TestPatternArgs encodes ffmpeg's test source in software; used by tests
-// and handy for checking the browser side without a virtual display.
+// TestPatternArgs encodes ffmpeg's test source; used by tests and handy for
+// checking the browser side without a virtual display. It uses libx264 when
+// ffmpeg has it and VideoToolbox otherwise (the LGPL ffmpeg shipped for macOS).
 func TestPatternArgs(width, height, fps int) []string {
-	return []string{
+	encoder := []string{"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"}
+	if !FFmpegHasEncoder("libx264") && FFmpegHasEncoder("h264_videotoolbox") {
+		encoder = []string{"-c:v", "h264_videotoolbox", "-realtime", "1", "-allow_sw", "1", "-b:v", "4000k", "-pix_fmt", "nv12"}
+	}
+	args := []string{
 		"-hide_banner", "-loglevel", "error",
 		"-re", "-f", "lavfi", "-i", fmt.Sprintf("testsrc2=size=%dx%d:rate=%d", width, height, fps),
-		"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-		"-profile:v", "baseline", "-pix_fmt", "yuv420p", "-g", fmt.Sprint(fps), "-bf", "0",
-		"-f", "h264", "pipe:1",
 	}
+	args = append(args, encoder...)
+	return append(args,
+		"-profile:v", "baseline", "-g", fmt.Sprint(fps), "-bf", "0",
+		"-f", "h264", "pipe:1",
+	)
 }

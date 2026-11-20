@@ -52,7 +52,7 @@ archives:
         strip_parent: true
         info:
           mode: 0755
-      - src: third_party/macos/ffmpeg-LICENSE.md
+      - src: third_party/macos/ffmpeg-LICENSE.txt
         strip_parent: true
 
   - id: other

@@ -4,7 +4,7 @@
 # (avfoundation screen capture → VideoToolbox H.264 → raw Annex-B on stdout).
 #
 # Usage: packaging/macos/build-ffmpeg.sh OUT_DIR
-# Writes OUT_DIR/ffmpeg and OUT_DIR/ffmpeg-LICENSE.md.
+# Writes OUT_DIR/ffmpeg and OUT_DIR/ffmpeg-LICENSE.txt.
 set -eu
 
 FFMPEG_VERSION=9.1
@@ -49,7 +49,7 @@ build() {
 build arm64
 build x86_64
 lipo -create -output "$out/ffmpeg" arm64/ffmpeg x86_64/ffmpeg
-cp "$src/COPYING.LGPLv2.1" "$out/ffmpeg-LICENSE.md"
+cp "$src/COPYING.LGPLv2.1" "$out/ffmpeg-LICENSE.txt"
 printf '\nffmpeg %s, source: https://ffmpeg.org/releases/ffmpeg-%s.tar.xz\nBuilt by packaging/macos/build-ffmpeg.sh in https://github.com/naoking158/spareglass\n' \
-	"$FFMPEG_VERSION" "$FFMPEG_VERSION" >>"$out/ffmpeg-LICENSE.md"
+	"$FFMPEG_VERSION" "$FFMPEG_VERSION" >>"$out/ffmpeg-LICENSE.txt"
 "$out/ffmpeg" -hide_banner -version | head -1
