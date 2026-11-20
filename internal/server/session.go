@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"runtime"
 	"sync"
 	"time"
 
@@ -246,14 +247,14 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 		}
 		lastErr = err
 		s.log.Warn("virtual display refused", "size", fmt.Sprintf("%dx%d", size[0], size[1]), "err", err)
-		if errors.Is(err, vdisplay.ErrNotImplemented) {
+		if errors.Is(err, vdisplay.ErrNotImplemented) || errors.Is(err, vdisplay.ErrUnavailable) {
 			break
 		}
 		s.send(statusMsg{Type: "status", State: "retrying", Detail: fmt.Sprintf("The host refused a %d×%d display. Trying a smaller size…", size[0], size[1])})
 	}
 	if d == nil {
 		detail := lastErr.Error()
-		if !errors.Is(lastErr, vdisplay.ErrNotImplemented) {
+		if runtime.GOOS == "darwin" && !errors.Is(lastErr, vdisplay.ErrNotImplemented) && !errors.Is(lastErr, vdisplay.ErrUnavailable) {
 			detail = "macOS would not add another display. Macs with base M-series chips allow few external displays: disconnect a monitor and try again. (" + detail + ")"
 		}
 		s.send(statusMsg{Type: "status", State: "no-display", Detail: detail})

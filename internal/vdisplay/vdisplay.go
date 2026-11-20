@@ -4,7 +4,7 @@
 // Each OS has its own implementation, selected by build tags:
 //
 //	darwin   CGVirtualDisplay (private CoreGraphics API) via go-macos/virtualdisplay
-//	windows  Indirect Display Driver (planned: control VirtualDrivers/Virtual-Display-Driver)
+//	windows  VirtualDrivers/Virtual-Display-Driver (IddCx), installed by the user
 //	linux    xdg-desktop-portal ScreenCast VIRTUAL / Mutter RecordVirtual (planned)
 package vdisplay
 
@@ -15,6 +15,11 @@ import (
 
 // ErrNotImplemented means this platform has no working provider yet.
 var ErrNotImplemented = errors.New("virtual displays are not implemented on this platform yet")
+
+// ErrUnavailable means Open cannot succeed at any size right now (a driver
+// is missing, or the only display slot is taken), so trying a smaller size
+// is pointless.
+var ErrUnavailable = errors.New("virtual displays are unavailable")
 
 // Spec describes a display to create. Width and Height are in pixels.
 type Spec struct {
@@ -44,7 +49,8 @@ type Provider interface {
 	// Available reports whether Open can work on this machine.
 	Available() error
 	Open(Spec) (Display, error)
-	// CloseAll removes every display this process created.
+	// CloseAll removes every display this process created, and any leftover
+	// that the platform can identify as spareglass's.
 	CloseAll() error
 }
 
