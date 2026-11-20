@@ -347,3 +347,24 @@ func TestFallsBackToSmallerDisplay(t *testing.T) {
 	default:
 	}
 }
+
+// unavailableProvider counts Open calls and always reports ErrUnavailable.
+type unavailableProvider struct {
+	fakeProvider
+	calls int
+}
+
+func (u *unavailableProvider) Open(vdisplay.Spec) (vdisplay.Display, error) {
+	u.calls++
+	return nil, fmt.Errorf("%w: driver missing", vdisplay.ErrUnavailable)
+}
+
+func TestUnavailableDisplayIsNotRetriedSmaller(t *testing.T) {
+	up := &unavailableProvider{}
+	m := NewManager(config.Default(), up, func(string, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s := &Session{m: m, slot: 0, log: m.log}
+	s.ensureDisplay(controlMsg{Type: "hello", Width: 3840, Height: 2160, DPR: 1})
+	if up.calls != 1 {
+		t.Fatalf("Open called %d times, want 1", up.calls)
+	}
+}

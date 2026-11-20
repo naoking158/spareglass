@@ -37,7 +37,7 @@ const (
 )
 
 // ErrNoDriver means the Virtual Display Driver is not installed.
-var ErrNoDriver = errors.New("the Virtual Display Driver is not installed: run VirtualDisplayDriver-setup.exe from the spareglass folder (see HOW-TO-USE.txt)")
+var ErrNoDriver = fmt.Errorf("%w: the Virtual Display Driver is not installed: run VirtualDisplayDriver-setup.exe from the spareglass folder (see HOW-TO-USE.txt)", ErrUnavailable)
 
 type vddProvider struct {
 	mu   sync.Mutex
@@ -60,7 +60,7 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.open != nil {
-		return nil, errors.New("Windows supports one spareglass display at a time")
+		return nil, fmt.Errorf("%w: Windows supports one spareglass display at a time", ErrUnavailable)
 	}
 	dev, err := vddDevice()
 	if err != nil {
@@ -71,25 +71,34 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 			return nil, err
 		}
 	}
+	if err := attach(dev, s); err != nil {
+		_ = windisplay.Detach(dev)
+		return nil, err
+	}
+	p.open = &vddDisplay{p: p, device: dev, spec: s}
+	return p.open, nil
+}
+
+// attach sets dev to the spec's size right of the other monitors and checks
+// that Windows applied it.
+func attach(dev string, s Spec) error {
 	x, err := rightEdge(dev)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err := windisplay.SetMode(dev, s.Width, s.Height, int(s.RefreshHz), x, 0); err != nil {
 		if err := windisplay.SetMode(dev, s.Width, s.Height, 0, x, 0); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	m, err := windisplay.Find(dev)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !m.Attached || m.Width != s.Width || m.Height != s.Height {
-		_ = windisplay.Detach(dev)
-		return nil, fmt.Errorf("Windows set %s to %dx%d instead of %dx%d", dev, m.Width, m.Height, s.Width, s.Height)
+		return fmt.Errorf("Windows set %s to %dx%d instead of %dx%d", dev, m.Width, m.Height, s.Width, s.Height)
 	}
-	p.open = &vddDisplay{p: p, device: dev, spec: s}
-	return p.open, nil
+	return nil
 }
 
 // CloseAll detaches every Virtual Display Driver monitor, including the one
