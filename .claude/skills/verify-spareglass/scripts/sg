@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+# sg: launch, inspect, drive and tear down one isolated spareglass verification run.
+# Run "sg help" for commands.
+set -euo pipefail
+
+ROOT="${SG_VERIFY_ROOT:-$HOME/.cache/spareglass-verify}"
+NODE_VERSION="${SG_NODE_VERSION:-26.8.2}"
+
+die() { echo "sg: $*" >&2; exit 1; }
+
+load() {
+  [[ -n "${1:-}" ]] || die "missing RUN_ID"
+  RUN="$ROOT/$1"
+  [[ -f "$RUN/run.env" ]] || die "no run $1 under $ROOT"
+  # shellcheck disable=SC1091
+  source "$RUN/run.env"
+  EV="$RUN/evidence"
+}
+
+# Fingerprint of the checkout: HEAD + tracked changes + untracked files.
+fingerprint() {
+  local repo="$1"
+  (
+    cd "$repo"
+    git rev-parse HEAD
+    git diff HEAD
+    git ls-files --others --exclude-standard -z | xargs -0 -I{} shasum {} 2>/dev/null
+  ) | shasum | cut -c1-12
+}
+
+pw() {
+  local out rc
+  set +e
+  out="$(cd "$EV" && mise exec "node@$NODE_VERSION" -- playwright-cli -s="$SESSION" "$@" 2>&1)"
+  rc=$?
+  set -e
+  printf '%s\n' "$out" | grep -v -e '║' -e '╔' -e '╚' || true
+  return $rc
+}
+
+STATE_JS='() => {
+  const v = document.getElementById("screen");
+  const c = document.getElementById("code");
+  const st = document.getElementById("status");
+  return {
+    url: location.pathname,
+    live: document.body.classList.contains("live"),
+    videoWidth: v.videoWidth, videoHeight: v.videoHeight, t: v.currentTime,
+    status: st.textContent, statusError: st.classList.contains("error"),
+    code: c.hidden ? null : c.textContent,
+    connectEnabled: !document.getElementById("connect").disabled,
+    screen: [screen.width, screen.height],
+    paired: !!localStorage.getItem("spareglass.device")
+  };
+}'
+
+cmd_up() {
+  local mode="test-pattern" repo
+  repo="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run from inside the spareglass checkout"
+  [[ -f "$repo/cmd/spareglass/main.go" ]] || die "$repo is not a spareglass checkout"
+  case "${1:-}" in
+    --real) mode="real" ;;
+    ""|--test-pattern) ;;
+    *) die "unknown flag $1 (use --real or --test-pattern)" ;;
+  esac
+
+  local id; id="$(date +%Y%m%d-%H%M%S)-$$"
+  local d="$ROOT/$id"
+  mkdir -p "$d/home" "$d/evidence"
+  echo "RUN_ID=$id"
+
+  local rev; rev="$(cd "$repo" && git rev-parse --short HEAD)"
+  local fp; fp="$(fingerprint "$repo")"
+  (cd "$repo" && go build -o "$d/spareglass" ./cmd/spareglass) || die "go build failed (run: sg down $id)"
+  local port; port="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')"
+  local flags="serve -v --addr 127.0.0.1:$port"
+  [[ "$mode" == "test-pattern" ]] && flags="$flags --test-pattern"
+
+  cat > "$d/run.env" <<EOF
+RUN_ID=$id
+REPO=$repo
+REV=$rev
+FINGERPRINT=$fp
+MODE=$mode
+PORT=$port
+URL=http://127.0.0.1:$port
+SESSION=sg-$id
+EOF
+  tmux new-session -d -s "sg-$id" -x 200 -y 50 \
+    "HOME='$d/home' '$d/spareglass' $flags 2>&1 | tee -i '$d/evidence/host.log'"
+
+  for _ in $(seq 1 40); do
+    if curl -fsS "http://127.0.0.1:$port/api/healthz" >/dev/null 2>&1; then
+      echo "URL=http://127.0.0.1:$port  mode=$mode  rev=$rev  fingerprint=$fp"
+      echo "evidence: $d/evidence"
+      return 0
+    fi
+    sleep 0.25
+  done
+  cmd_down "$id" >/dev/null 2>&1 || true
+  die "host did not answer /api/healthz within 10s; stopped. See $d/evidence/host.log"
+}
+
+cmd_doctor() {
+  load "$1"
+  local ok=1
+  check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; ok=0; fi; }
+  check "tmux session $SESSION alive" "tmux has-session -t '$SESSION' 2>/dev/null"
+  local pid; pid="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -1 || true)"
+  check "port $PORT owned by this run's binary" "[[ -n '$pid' ]] && ps -o command= -p '$pid' | grep -qF '$RUN/spareglass'"
+  check "/api/healthz answers ok" "curl -fsS '$URL/api/healthz' | grep -q '\"ok\"'"
+  check "/1 serves the client page" "curl -fsS '$URL/1' | grep -q 'id=\"connect\"'"
+  check "host config is isolated in this run" "grep -qF 'Config: $RUN/home/' '$EV/host.log'"
+  local now; now="$(fingerprint "$REPO")"
+  check "binary matches the checkout (fingerprint $FINGERPRINT, now $now)" "[[ '$now' == '$FINGERPRINT' ]]"
+  echo "mode=$MODE url=$URL"
+  echo "paired devices: $(HOME="$RUN/home" "$RUN/spareglass" devices | grep -vc '^No paired' || true)"
+  [[ $ok == 1 ]]
+}
+
+cmd_open() {
+  load "$1"
+  pw open "$URL/${2:-1}" | sed -n '/### Page/,/### Snapshot/p'
+}
+
+cmd_state() {
+  load "$1"
+  local json; json="$(pw --raw eval "$STATE_JS")" || { echo "$json"; return 1; }
+  echo "$json"
+  [[ -n "${2:-}" ]] && printf '%s\n' "$json" > "$EV/$2.json"
+  return 0
+}
+
+cmd_wait() {
+  load "$1"
+  local pred="$2" timeout="${3:-15}" json=""
+  local end=$((SECONDS + timeout))
+  while (( SECONDS < end )); do
+    if json="$(pw --raw eval "() => { const s = ($STATE_JS)(); return ($pred) ? JSON.stringify(s) : null; }")" && [[ "$json" != "null" ]]; then
+      echo "met: $pred"
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "TIMEOUT after ${timeout}s waiting for: $pred"
+  pw --raw eval "$STATE_JS" || true
+  return 1
+}
+
+# Answer the pending pairing prompt only if it shows the expected code.
+cmd_answer() {
+  load "$1"
+  local code="${2:-}" a="${3:-}"
+  [[ "$code" =~ ^[0-9]{4}$ && "$a" =~ ^[yn]$ ]] || die "usage: sg answer RUN_ID <4-digit code> y|n"
+  local pending
+  pending="$(awk '/Code shown on that screen:/ {c=$NF; open=1} /Allowed |Denied |request expired|request denied/ {open=0} END {if (open) print c}' "$EV/host.log")"
+  [[ -n "$pending" ]] || die "no pairing prompt is waiting on the host"
+  [[ "$pending" == "$code" ]] || die "host is asking about code $pending, not $code; refusing to answer"
+  tmux send-keys -t "$SESSION" "$a" Enter
+  for _ in $(seq 1 20); do
+    if tail -5 "$EV/host.log" | grep -qE '  (Allowed|Denied) '; then
+      tail -5 "$EV/host.log" | grep -E '  (Allowed|Denied) '
+      return 0
+    fi
+    sleep 0.25
+  done
+  die "host did not acknowledge the answer"
+}
+
+cmd_pw() { load "$1"; shift; pw "$@"; }
+
+cmd_devices() {
+  load "$1"; shift
+  HOME="$RUN/home" "$RUN/spareglass" devices "$@" | tee -a "$EV/devices.txt"
+}
+
+cmd_displays() {
+  system_profiler SPDisplaysDataType | grep -A2 "spareglass" || echo "no spareglass virtual displays"
+}
+
+cmd_log() { load "$1"; cat "$EV/host.log"; }
+
+cmd_down() {
+  load "$1"
+  pw close >/dev/null 2>&1 || true
+  if tmux has-session -t "$SESSION" 2>/dev/null; then
+    tmux send-keys -t "$SESSION" C-c
+    for _ in $(seq 1 40); do tmux has-session -t "$SESSION" 2>/dev/null || break; sleep 0.25; done
+    tmux kill-session -t "$SESSION" 2>/dev/null || true
+  fi
+  if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+    echo "WARN: port $PORT still listening; inspect with: lsof -nP -iTCP:$PORT"
+  fi
+  if [[ -x "$RUN/spareglass" ]]; then
+    { echo "# devices at teardown"; HOME="$RUN/home" "$RUN/spareglass" devices; } > "$EV/devices-final.txt" 2>&1 || true
+  fi
+  { echo "# displays after host stopped"; cmd_displays; } > "$EV/displays-after-down.txt"
+  rm -rf "$RUN/home" "$RUN/spareglass"
+  echo "stopped $RUN_ID; evidence kept in $EV:"
+  ls "$EV"
+  cat "$EV/displays-after-down.txt"
+}
+
+case "${1:-help}" in
+  up) shift; cmd_up "$@" ;;
+  doctor) shift; cmd_doctor "$@" ;;
+  open) shift; cmd_open "$@" ;;
+  state) shift; cmd_state "$@" ;;
+  wait) shift; cmd_wait "$@" ;;
+  answer) shift; cmd_answer "$@" ;;
+  pw) shift; cmd_pw "$@" ;;
+  devices) shift; cmd_devices "$@" ;;
+  displays) cmd_displays ;;
+  log) shift; cmd_log "$@" ;;
+  down) shift; cmd_down "$@" ;;
+  *) cat <<'EOF'
+sg up [--real]                 build the checkout, start an isolated host in tmux, print RUN_ID
+sg doctor RUN_ID               read-only health check of that run
+sg open RUN_ID [N]             open http://127.0.0.1:PORT/N (default 1) in this run's headless Chrome
+sg state RUN_ID [NAME]         print client state JSON; with NAME also save evidence/NAME.json
+sg wait RUN_ID 'PRED' [SEC]    poll until JS predicate over state `s` holds (default 15s)
+sg answer RUN_ID CODE y|n      answer the host's pairing prompt, only if it shows CODE
+sg pw RUN_ID <args...>         raw playwright-cli in this run's session (cwd = evidence dir)
+sg devices RUN_ID [...]        "spareglass devices" against this run's store (appends evidence/devices.txt)
+sg displays                    spareglass virtual displays macOS has right now (machine-wide)
+sg log RUN_ID                  print the host log
+sg down RUN_ID                 stop browser + host, delete scratch state, keep evidence
+EOF
+  ;;
+esac
