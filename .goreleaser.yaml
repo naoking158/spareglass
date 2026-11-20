@@ -92,7 +92,6 @@ release:
     | パソコン | ファイル |
     |---|---|
     | Mac (macOS 14 以降) | `spareglass_{{ .Version }}_mac.zip` |
-    | Windows 10 / 11 | `spareglass_{{ .Version }}_windows_x64.zip` |
 
     ダウンロードしたら展開（ダブルクリック）して、フォルダの中の `HOW-TO-USE.txt` を読んでください。
     Extract the zip and follow `HOW-TO-USE.txt` inside the folder.

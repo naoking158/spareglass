@@ -127,7 +127,7 @@ func runServe(args []string) error {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
 	pairer := pairing.NewPairer(ctx, store, pairing.NewTerminalApprover(os.Stdin, os.Stdout))

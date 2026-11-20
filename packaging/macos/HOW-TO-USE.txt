@@ -53,6 +53,7 @@ Mac のターミナルに同じ番号 (Code shown on that screen) と「Allow? [
 - アドレスを開けない: 2 台が同じ Wi-Fi か確認してください。
   ターミナルに複数のアドレスが出ている場合は、別のものも試してください。
 - 真っ黒のまま: 「2. 画面収録を許可する」を確認してください。
-- 許可した機器を忘れさせたい: ターミナルで ./spareglass devices clear
+- 許可した機器を忘れさせたい: 「Start spareglass.command」と同じフォルダで
+  ターミナルを開き、./spareglass devices clear を実行します。
 
-同梱の ffmpeg は LGPL で配布されています (ffmpeg-LICENSE.md)。
+同梱の ffmpeg は LGPL で配布されています (ffmpeg-LICENSE.txt)。
