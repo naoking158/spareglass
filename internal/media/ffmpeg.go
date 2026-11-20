@@ -14,12 +14,15 @@ import (
 )
 
 // ErrNoFFmpeg means ffmpeg is neither next to the spareglass executable nor on PATH.
-var ErrNoFFmpeg = errors.New("ffmpeg not found: keep the ffmpeg file from the download next to spareglass, or install ffmpeg")
+var ErrNoFFmpeg = errors.New("ffmpeg not found next to spareglass or on PATH (use the ffmpeg from the release archive, or: brew install ffmpeg)")
 
 // FFmpegPath returns the ffmpeg executable, or ErrNoFFmpeg. The copy shipped
 // next to the spareglass executable in release archives wins over PATH.
 func FFmpegPath() (string, error) {
 	if exe, err := os.Executable(); err == nil {
+		if real, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = real
+		}
 		if p, ok := bundledFFmpeg(filepath.Dir(exe)); ok {
 			return p, nil
 		}
