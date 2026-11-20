@@ -4,7 +4,6 @@
 set -euo pipefail
 
 ROOT="${SG_VERIFY_ROOT:-$HOME/.cache/spareglass-verify}"
-NODE_VERSION="${SG_NODE_VERSION:-26.8.2}"
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BROWSER_IMAGE="sg-linux-chromium"
 
@@ -35,7 +34,7 @@ fingerprint() {
 pw() {
   local out rc
   set +e
-  out="$(cd "$EV" && mise exec "node@$NODE_VERSION" -- playwright-cli -s="$SESSION" "$@" 2>&1)"
+  out="$(mise -C "$REPO" exec -- sh -c 'cd "$1" && shift && exec playwright-cli "$@"' _ "$EV" -s="$SESSION" "$@" 2>&1)"
   rc=$?
   set -e
   printf '%s\n' "$out" | grep -v -e '║' -e '╔' -e '╚' || true

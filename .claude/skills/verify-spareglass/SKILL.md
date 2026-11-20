@@ -16,8 +16,8 @@ Run `sg` from inside the spareglass checkout you want to verify (it builds that 
 
 ## Requirements
 
-- macOS 14+ with `go`, `tmux`, `python3`, `ffmpeg` (`brew install ffmpeg`).
-- `playwright-cli` through mise node. The repo's `mise.toml` pins no node and the mise shim fails inside the checkout, so `sg` runs `mise exec node@$SG_NODE_VERSION` (default `26.8.2`). Override `SG_NODE_VERSION` if that version is not installed (`mise ls node`).
+- macOS 14+ with `mise`, `tmux` and `python3`.
+- `mise install` in the checkout. The repo's `mise.toml` provides go, ffmpeg, node and `playwright-cli`, and `sg` runs playwright-cli through it (`mise -C <checkout> exec`), so no global install is needed.
 - `--real` mode only: Screen Recording permission for the terminal app that runs Claude Code.
 
 ## Launch
@@ -143,5 +143,5 @@ If `up` printed a RUN_ID but failed later, still run `sg down <RUN_ID>`.
 Report which of these stopped you:
 
 1. **Cannot start:** `up` or `doctor` fails (build error, no tmux, port). Include the output and `host.log`.
-2. **Cannot drive:** playwright-cli missing or the node pin is absent (`mise ls node`), or `--real` without Screen Recording permission (log shows `capture pipeline stopped`).
+2. **Cannot drive:** playwright-cli missing (run `mise install` in the checkout), or `--real` without Screen Recording permission (log shows `capture pipeline stopped`).
 3. **Missing precondition:** e.g. macOS refuses another display (status `no-display`) because the Mac's external-display limit is reached.
