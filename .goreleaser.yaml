@@ -2,8 +2,8 @@
 # Run by .github/workflows/package.yml (release on v* tags, snapshot in CI).
 #
 # Archives are named for people, not toolchains: one universal "mac" zip and
-# "windows_x64" / "windows_arm64" zips. The mac zip ships an LGPL ffmpeg that
-# packaging/macos/build-ffmpeg.sh builds into third_party/macos/ beforehand.
+# "windows_x64" / "windows_arm64" zips. Both ship an LGPL ffmpeg that
+# packaging/{macos,windows}/build-ffmpeg.sh builds into third_party/ beforehand.
 version: 2
 
 project_name: spareglass
@@ -25,11 +25,20 @@ builds:
     ldflags: &ldflags
       - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
 
+  - id: windows
+    main: ./cmd/spareglass
+    binary: spareglass
+    env: *env
+    goos: [windows]
+    goarch: [amd64, arm64]
+    flags: *flags
+    ldflags: *ldflags
+
   - id: other
     main: ./cmd/spareglass
     binary: spareglass
     env: *env
-    goos: [windows, linux]
+    goos: [linux]
     goarch: [amd64, arm64]
     flags: *flags
     ldflags: *ldflags
@@ -61,12 +70,23 @@ archives:
         info:
           mode: 0755
 
+  # The x64 ffmpeg.exe also runs on Windows on Arm (x64 emulation).
+  - id: windows
+    ids: [windows]
+    formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_windows_{{ if eq .Arch \"amd64\" }}x64{{ else }}{{ .Arch }}{{ end }}"
+    wrap_in_directory: true
+    files:
+      - README.md
+      - LICENSE
+      - src: third_party/windows/ffmpeg.exe
+        strip_parent: true
+      - src: third_party/windows/ffmpeg-LICENSE.txt
+        strip_parent: true
+
   - id: other
     ids: [other]
     formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ if eq .Arch "amd64" }}x64{{ else }}{{ .Arch }}{{ end }}
     wrap_in_directory: true

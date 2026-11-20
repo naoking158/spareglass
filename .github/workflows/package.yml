@@ -43,8 +43,51 @@ jobs:
           path: third_party/macos
           retention-days: 1
 
+  ffmpeg-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/windows
+          key: ffmpeg-windows-${{ hashFiles('packaging/windows/*') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mingw-w64 >/dev/null
+          packaging/windows/build-ffmpeg.sh third_party/windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-windows
+          path: third_party/windows
+          retention-days: 1
+
+  windows-pipeline:
+    needs: ffmpeg-windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-windows
+          path: third_party/windows
+      - name: Pipeline tests against the bundled ffmpeg only
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir=$(mktemp -d)
+          cp third_party/windows/ffmpeg.exe "$dir/"
+          go test -c -o "$dir/media.test.exe" ./internal/media
+          cd "$dir" && PATH=/usr/bin:/bin ./media.test.exe -test.v | tee test.log
+          ! grep -q -- "--- SKIP" test.log
+          grep -q -- "--- PASS: TestPipelineCapturesPrimaryMonitor" test.log
+
   goreleaser:
-    needs: ffmpeg-macos
+    needs: [ffmpeg-macos, ffmpeg-windows, windows-pipeline]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -57,6 +100,10 @@ jobs:
         with:
           name: ffmpeg-macos
           path: third_party/macos
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-windows
+          path: third_party/windows
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
