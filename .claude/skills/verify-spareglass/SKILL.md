@@ -54,7 +54,7 @@ This cross-builds `GOOS=linux` for the Docker daemon's arch, runs the host in co
 
 It needs Docker (colima or Docker Desktop) with `$HOME` mounted, because the run directory under `~/.cache` is bind-mounted as `/app`.
 
-What a Linux run can prove today: the Linux build starts, the config path is `/root/.config/spareglass/`, pairing works, WebRTC reaches `connected`, the client ends at the `no-display` message (`virtual displays are not implemented on this platform yet…`), and the devices CLI works. Streaming is unreachable on Linux until `internal/vdisplay` and `internal/media` are implemented, so report it as unreachable. A plain container has no compositor, so this target cannot verify future portal/Mutter virtual-display work either. That needs a GNOME/KDE session with PipeWire.
+What a Linux run can prove today: the Linux build starts, the config path is `/root/.config/spareglass/`, pairing works, WebRTC reaches `connected`, the client ends at the `no-display` message (`The host cannot create a display: virtual displays are not implemented on this platform yet…`) with Connect enabled again, and the devices CLI works. Streaming is unreachable on Linux until `internal/vdisplay` and `internal/media` are implemented, so report it as unreachable. A plain container has no compositor, so this target cannot verify future portal/Mutter virtual-display work either. That needs a GNOME/KDE session with PipeWire.
 
 The browser must be able to receive H.264. Check with `$SG pw $ID --raw eval '() => RTCRtpReceiver.getCapabilities("video").codecs.some(c => /h264/i.test(c.mimeType))'`. Debian `chromium` returns `true`. `chromedp/headless-shell` returns `false`, and the host then fails with `unable to start track, codec is not supported by remote` (HTTP 500).
 

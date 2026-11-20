@@ -26,7 +26,7 @@ Preconditions: fresh run, `doctor` shows `paired devices: 0`, page opened with `
 
 ## Gotchas
 
-- `sg answer` refuses when the waiting prompt shows another code, or when no prompt is waiting. This is deliberate: the host reads stdin lines in order, so a stray `y` would approve the next request.
+- `sg answer` refuses when the waiting prompt shows another code, or when no prompt is waiting. The host discards lines typed while no prompt is shown, so an answer sent too early is lost and the request keeps waiting.
 - A request expires after 2 minutes without an answer. The browser then shows `Nobody answered on the host.`
-- At most 4 unanswered requests at once; the 5th gets HTTP 429.
+- One waiting request per IP address: tapping Connect again from the same address returns the same code. At most 4 addresses can wait at once; the 5th gets HTTP 429.
 - Approval needs a second tap on Connect, because the first tap can no longer open full screen.

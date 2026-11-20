@@ -224,10 +224,11 @@ cmd_answer() {
   pending="$(awk '/Code shown on that screen:/ {c=$NF; open=1} /Allowed |Denied |request expired|request denied/ {open=0} END {if (open) print c}' "$EV/host.log")"
   [[ -n "$pending" ]] || die "no pairing prompt is waiting on the host"
   [[ "$pending" == "$code" ]] || die "host is asking about code $pending, not $code; refusing to answer"
+  local before; before="$(wc -l < "$EV/host.log")"
   tmux send-keys -t "$SESSION" "$a" Enter
   for _ in $(seq 1 20); do
-    if tail -5 "$EV/host.log" | grep -qE '  (Allowed|Denied) '; then
-      tail -5 "$EV/host.log" | grep -E '  (Allowed|Denied) '
+    if tail -n +"$((before + 1))" "$EV/host.log" | grep -qE '  (Allowed|Denied) '; then
+      tail -n +"$((before + 1))" "$EV/host.log" | grep -E '  (Allowed|Denied) '
       return 0
     fi
     sleep 0.25
