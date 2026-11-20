@@ -63,6 +63,7 @@ func (p *ffmpegPipeline) Run(ctx context.Context, out func(EncodedFrame) error) 
 		p.mu.Unlock()
 		return nil
 	}
+	parent := ctx
 	ctx, p.cancel = context.WithCancel(ctx)
 	p.mu.Unlock()
 
@@ -77,12 +78,13 @@ func (p *ffmpegPipeline) Run(ctx context.Context, out func(EncodedFrame) error) 
 		return err
 	}
 	readErr := ReadAccessUnits(stdout, p.fps, out)
+	stopped := p.isClosed() || parent.Err() != nil
 	if readErr != nil {
-		p.Close()
+		p.cancel()
 	}
 	waitErr := cmd.Wait()
-	if ctx.Err() != nil {
-		return nil // closed on purpose
+	if stopped {
+		return nil
 	}
 	if readErr != nil {
 		return readErr
@@ -96,6 +98,12 @@ func (p *ffmpegPipeline) Run(ctx context.Context, out func(EncodedFrame) error) 
 // RequestKeyframe cannot be forwarded to an ffmpeg process; the GOP is kept
 // short (one second) instead.
 func (p *ffmpegPipeline) RequestKeyframe() {}
+
+func (p *ffmpegPipeline) isClosed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closed
+}
 
 func (p *ffmpegPipeline) Close() error {
 	p.mu.Lock()
