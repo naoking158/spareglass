@@ -17,8 +17,9 @@ const appDir = "spareglass"
 
 // Config is the host configuration.
 type Config struct {
-	// Addr is the HTTP listen address, e.g. ":7878".
-	Addr string `json:"addr"`
+	// Addr is the HTTP listen address. Empty means automatic: port 80 so the
+	// URL needs no port, falling back to 7878 if 80 is unavailable.
+	Addr string `json:"addr,omitempty"`
 	// FPS is the target capture/encode frame rate.
 	FPS int `json:"fps"`
 	// BitrateKbps is the target video bitrate per display.
@@ -29,15 +30,11 @@ type Config struct {
 	// pixels. 1 keeps text legible; the client's devicePixelRatio gives the
 	// sharpest picture at a higher bitrate.
 	RenderScale float64 `json:"render_scale"`
-	// Token fixes the pairing token so a bookmarked URL keeps working.
-	// Empty means a new random token every run.
-	Token string `json:"token,omitempty"`
 }
 
 // Default returns the built-in defaults.
 func Default() Config {
 	return Config{
-		Addr:        ":7878",
 		FPS:         60,
 		BitrateKbps: 12000,
 		MaxClients:  2,
@@ -48,8 +45,6 @@ func Default() Config {
 // Validate reports the first invalid field.
 func (c Config) Validate() error {
 	switch {
-	case c.Addr == "":
-		return errors.New("config: addr must not be empty")
 	case c.FPS < 1 || c.FPS > 240:
 		return fmt.Errorf("config: fps %d out of range 1-240", c.FPS)
 	case c.BitrateKbps < 500 || c.BitrateKbps > 200000:
@@ -58,19 +53,35 @@ func (c Config) Validate() error {
 		return fmt.Errorf("config: max_clients %d out of range 1-8", c.MaxClients)
 	case c.RenderScale < 0.5 || c.RenderScale > 4:
 		return fmt.Errorf("config: render_scale %g out of range 0.5-4", c.RenderScale)
-	case c.Token != "" && len(c.Token) < 16:
-		return errors.New("config: token must be at least 16 characters")
 	}
 	return nil
 }
 
-// Path returns the config file location.
-func Path() (string, error) {
+// Dir returns the directory holding config.json and devices.json.
+func Dir() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, appDir, "config.json"), nil
+	return filepath.Join(dir, appDir), nil
+}
+
+// Path returns the config file location.
+func Path() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.json"), nil
+}
+
+// DevicesPath returns where approved devices are stored.
+func DevicesPath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "devices.json"), nil
 }
 
 // Load reads the config file over the defaults. A missing file is not an error.

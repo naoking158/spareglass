@@ -3,6 +3,7 @@ module github.com/naoking158/spareglass
 go 1.27.1
 
 require (
+	github.com/ebitengine/purego v0.11.1
 	github.com/go-macos/virtualdisplay v0.5.0
 	github.com/pion/rtcp v1.2.20
 	github.com/pion/webrtc/v4 v4.2.26
@@ -10,7 +11,6 @@ require (
 )
 
 require (
-	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/go-macos/objc v0.10.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/pion/datachannel v1.6.3 // indirect

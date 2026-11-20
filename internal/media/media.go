@@ -1,5 +1,9 @@
 // Package media defines the capture → encode pipeline that feeds a WebRTC
-// video track. Implementations are per OS and will likely need cgo:
+// video track.
+//
+// Today the macOS pipeline runs ffmpeg (avfoundation capture + VideoToolbox
+// H.264) and reads its Annex-B output. The long-term plan is in-process
+// capture/encode per OS, which will likely need cgo:
 //
 //	          capture                 encode
 //	darwin   ScreenCaptureKit        VideoToolbox (H.264)
@@ -56,7 +60,6 @@ type Pipeline interface {
 	Close() error
 }
 
-// NewPipeline returns the platform pipeline. None exists yet.
-func NewPipeline(displayID string, fps, bitrateKbps int) (Pipeline, error) {
-	return nil, ErrNotImplemented
-}
+// Factory builds the pipeline for one virtual display. NewPipeline is the
+// platform default; tests substitute their own.
+type Factory func(displayID string, fps, bitrateKbps int) (Pipeline, error)

@@ -33,8 +33,18 @@ func Run(w io.Writer, version string, p vdisplay.Provider) error {
 		fmt.Fprintln(w, "                  available")
 	}
 
-	if _, err := media.NewPipeline("", 60, 12000); err != nil {
+	switch ff, err := media.FFmpegPath(); {
+	case err != nil:
 		fmt.Fprintf(w, "Capture/encode:   NOT AVAILABLE: %v\n", err)
+	case runtime.GOOS == "darwin":
+		enc := "libx264 (software; h264_videotoolbox missing)"
+		if media.FFmpegHasEncoder("h264_videotoolbox") {
+			enc = "h264_videotoolbox (hardware)"
+		}
+		fmt.Fprintf(w, "Capture/encode:   ffmpeg %s, encoder %s\n", ff, enc)
+		fmt.Fprintln(w, "                  needs Screen Recording permission for this terminal app")
+	default:
+		fmt.Fprintf(w, "Capture/encode:   NOT AVAILABLE on %s yet (ffmpeg found at %s)\n", runtime.GOOS, ff)
 	}
 
 	if p, err := config.Path(); err == nil {

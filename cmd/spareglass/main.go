@@ -20,6 +20,7 @@ import (
 
 	"github.com/naoking158/spareglass/internal/config"
 	"github.com/naoking158/spareglass/internal/doctor"
+	"github.com/naoking158/spareglass/internal/media"
 	"github.com/naoking158/spareglass/internal/netutil"
 	"github.com/naoking158/spareglass/internal/pairing"
 	"github.com/naoking158/spareglass/internal/server"
@@ -41,6 +42,9 @@ Usage:
   spareglass config path       print the config file location
   spareglass config show       print the effective config
   spareglass config init       write a config file with defaults
+  spareglass devices           list browsers allowed to connect
+  spareglass devices revoke ID forget one browser
+  spareglass devices clear     forget every browser
   spareglass version           print version information
 
 Run "spareglass serve -h" for serve flags.
@@ -61,6 +65,8 @@ func main() {
 		err = doctor.Run(os.Stdout, version, vdisplay.Default())
 	case "config":
 		err = runConfig(args)
+	case "devices":
+		err = runDevices(args)
 	case "version":
 		fmt.Printf("spareglass %s (commit %s, built %s)\n", version, commit, date)
 	case "help", "-h", "--help":
@@ -82,13 +88,13 @@ func runServe(args []string) error {
 	}
 
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	fs.StringVar(&cfg.Addr, "addr", cfg.Addr, "listen address")
+	fs.StringVar(&cfg.Addr, "addr", cfg.Addr, "listen address (default: port 80, else 7878)")
 	fs.IntVar(&cfg.FPS, "fps", cfg.FPS, "target frames per second")
 	fs.IntVar(&cfg.BitrateKbps, "bitrate", cfg.BitrateKbps, "target video bitrate in kbps")
 	fs.IntVar(&cfg.MaxClients, "max-clients", cfg.MaxClients, "maximum number of connected displays")
 	fs.Float64Var(&cfg.RenderScale, "render-scale", cfg.RenderScale, "virtual display size relative to the client's CSS pixels (1 = legible, devicePixelRatio = sharp)")
-	fs.StringVar(&cfg.Token, "token", cfg.Token, "fixed pairing token (default: random per run)")
 	verbose := fs.Bool("v", false, "verbose logging")
+	testPattern := fs.Bool("test-pattern", false, "stream ffmpeg's test pattern instead of the virtual display (to check the browser side)")
 	_ = fs.Parse(args)
 
 	if err := cfg.Validate(); err != nil {
@@ -101,12 +107,13 @@ func runServe(args []string) error {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	token := cfg.Token
-	if token == "" {
-		token, err = pairing.NewToken()
-		if err != nil {
-			return err
-		}
+	devicesPath, err := config.DevicesPath()
+	if err != nil {
+		return err
+	}
+	store, err := pairing.OpenStore(devicesPath)
+	if err != nil {
+		return err
 	}
 
 	provider := vdisplay.Default()
@@ -115,26 +122,34 @@ func runServe(args []string) error {
 			"provider", provider.Name(), "err", err)
 	}
 
-	ln, err := net.Listen("tcp", cfg.Addr)
+	ln, err := listen(cfg.Addr, log)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", cfg.Addr, err)
+		return err
 	}
-
-	srv := server.New(server.Options{
-		Config:   cfg,
-		Token:    pairing.Token(token),
-		Provider: provider,
-		Logger:   log,
-	})
-	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	pairer := pairing.NewPairer(ctx, store, pairing.NewTerminalApprover(os.Stdin, os.Stdout))
+	var factory media.Factory // nil: the platform pipeline
+	if *testPattern {
+		factory = func(_ string, fps, _ int) (media.Pipeline, error) {
+			return media.NewFFmpegPipeline(media.TestPatternArgs(1280, 720, fps), fps)
+		}
+	}
+	srv := server.New(server.Options{
+		Config:      cfg,
+		Pairer:      pairer,
+		Provider:    provider,
+		NewPipeline: factory,
+		Logger:      log,
+	})
+	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpSrv.Serve(ln) }()
 
-	printBanner(ln.Addr().(*net.TCPAddr).Port, token, path)
+	printBanner(ln.Addr().(*net.TCPAddr).Port, cfg.MaxClients, len(store.List()), path)
 
 	select {
 	case <-ctx.Done():
@@ -152,24 +167,93 @@ func runServe(args []string) error {
 	return nil
 }
 
-func printBanner(port int, token, cfgPath string) {
-	urls := netutil.LANURLs(port, "#t="+token)
+// listen binds addr, or port 80 then 7878 when addr is empty.
+func listen(addr string, log *slog.Logger) (net.Listener, error) {
+	if addr != "" {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			return nil, fmt.Errorf("listen on %s: %w", addr, err)
+		}
+		return ln, nil
+	}
+	ln, err := net.Listen("tcp", ":80")
+	if err == nil {
+		return ln, nil
+	}
+	log.Info("port 80 unavailable, using 7878", "err", err)
+	ln, err = net.Listen("tcp", ":7878")
+	if err != nil {
+		return nil, fmt.Errorf("listen on :80 and :7878 failed: %w", err)
+	}
+	return ln, nil
+}
+
+func printBanner(port, displays, paired int, cfgPath string) {
+	urls := netutil.LANURLs(port, "/1")
 	fmt.Println()
 	fmt.Println("spareglass is running.")
 	if len(urls) == 0 {
-		fmt.Printf("  No LAN address found. Open http://<this-computer>:%d/#t=%s on the other device.\n", port, token)
+		host := "<this-computer-ip>"
+		if port != 80 {
+			host = fmt.Sprintf("%s:%d", host, port)
+		}
+		fmt.Printf("  No LAN address found. Open http://%s/1 on the other device.\n", host)
 	} else {
 		if qr, err := qrcode.New(urls[0], qrcode.Low); err == nil {
 			fmt.Print(qr.ToSmallString(false))
 		}
-		fmt.Println("Open one of these on the device you want to use as a display:")
+		fmt.Println("On the device you want to use as a display, open:")
 		for _, u := range urls {
 			fmt.Println("  " + u)
 		}
+		if displays > 1 {
+			fmt.Printf("  (/1 to /%d choose the display)\n", displays)
+		}
 	}
+	fmt.Printf("New browsers ask for approval here. Paired browsers: %d (manage with \"spareglass devices\").\n", paired)
 	fmt.Printf("Config: %s\n", cfgPath)
 	fmt.Println("Press Ctrl+C to stop.")
 	fmt.Println()
+}
+
+func runDevices(args []string) error {
+	p, err := config.DevicesPath()
+	if err != nil {
+		return err
+	}
+	store, err := pairing.OpenStore(p)
+	if err != nil {
+		return err
+	}
+	if len(args) == 0 || args[0] == "list" {
+		list := store.List()
+		if len(list) == 0 {
+			fmt.Println("No paired browsers.")
+			return nil
+		}
+		for _, d := range list {
+			fmt.Printf("%s  %-28s  paired %s\n", d.ID, d.Name, d.Created.Local().Format("2006-01-02 15:04"))
+		}
+		return nil
+	}
+	switch args[0] {
+	case "revoke":
+		if len(args) < 2 {
+			return errors.New("usage: spareglass devices revoke ID")
+		}
+		if err := store.Remove(args[1]); err != nil {
+			return err
+		}
+		fmt.Println("revoked", args[1])
+	case "clear":
+		if err := store.Clear(); err != nil {
+			return err
+		}
+		fmt.Println("All browsers forgotten.")
+	default:
+		return fmt.Errorf("unknown devices subcommand %q", args[0])
+	}
+	return nil
 }
 
 func runConfig(args []string) error {

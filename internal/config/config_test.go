@@ -10,9 +10,9 @@ func TestDefaultIsValid(t *testing.T) {
 
 func TestValidateRejects(t *testing.T) {
 	cases := map[string]func(*Config){
-		"fps":   func(c *Config) { c.FPS = 0 },
-		"scale": func(c *Config) { c.RenderScale = 10 },
-		"token": func(c *Config) { c.Token = "short" },
+		"fps":     func(c *Config) { c.FPS = 0 },
+		"scale":   func(c *Config) { c.RenderScale = 10 },
+		"clients": func(c *Config) { c.MaxClients = 0 },
 	}
 	for name, mutate := range cases {
 		c := Default()

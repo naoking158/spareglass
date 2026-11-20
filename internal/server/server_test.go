@@ -2,17 +2,22 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/pion/webrtc/v4"
 
 	"github.com/naoking158/spareglass/internal/config"
+	"github.com/naoking158/spareglass/internal/media"
+	"github.com/naoking158/spareglass/internal/pairing"
 	"github.com/naoking158/spareglass/internal/vdisplay"
 )
 
@@ -33,36 +38,116 @@ func (d fakeDisplay) ID() string          { return "fake-1" }
 func (d fakeDisplay) Spec() vdisplay.Spec { return d.s }
 func (d fakeDisplay) Close() error        { return nil }
 
-func newTestServer(t *testing.T, p vdisplay.Provider) (*httptest.Server, *Server) {
+func newTestServer(t *testing.T, p vdisplay.Provider, approve bool, factory ...media.Factory) *httptest.Server {
 	t.Helper()
+	store, err := pairing.OpenStore(filepath.Join(t.TempDir(), "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	pairer := pairing.NewPairer(ctx, store, pairing.ApproverFunc(func(context.Context, *pairing.Request) bool { return approve }))
 	cfg := config.Default()
-	s := New(Options{Config: cfg, Token: "test-token-0123456789", Provider: p, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	var f media.Factory
+	if len(factory) > 0 {
+		f = factory[0]
+	}
+	s := New(Options{Config: cfg, Pairer: pairer, Provider: p, NewPipeline: f, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	ts := httptest.NewServer(s.Handler())
-	t.Cleanup(func() { ts.Close(); s.Close() })
-	return ts, s
+	t.Cleanup(func() { ts.Close(); s.Close(); cancel() })
+	return ts
 }
 
-func TestSessionRequiresToken(t *testing.T) {
-	ts, _ := newTestServer(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)})
-	res, err := http.Post(ts.URL+"/api/session", "application/json", bytes.NewBufferString(`{"sdp":"x"}`))
+func postJSON(t *testing.T, url, auth string, v any) *http.Response {
+	t.Helper()
+	b, _ := json.Marshal(v)
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", res.StatusCode)
+	return res
+}
+
+// pairDevice runs the pairing flow and returns an Authorization header value.
+func pairDevice(t *testing.T, base string) string {
+	t.Helper()
+	res := postJSON(t, base+"/api/pair", "", pairRequest{Name: "Test on iPad", Slot: 1})
+	if res.StatusCode != 200 {
+		t.Fatalf("pair start: %d", res.StatusCode)
+	}
+	var start pairStartResponse
+	_ = json.NewDecoder(res.Body).Decode(&start)
+	if len(start.Code) != 4 {
+		t.Fatalf("code = %q", start.Code)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		r, err := http.Get(base + "/api/pair/" + start.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var st pairStatusResponse
+		_ = json.NewDecoder(r.Body).Decode(&st)
+		switch st.Status {
+		case pairing.StateApproved:
+			return fmt.Sprintf("Device %s:%s", st.DeviceID, st.Secret)
+		case pairing.StateDenied, pairing.StateExpired:
+			t.Fatalf("pairing ended as %s", st.Status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("pairing never finished")
+	return ""
+}
+
+func TestRoutes(t *testing.T) {
+	ts := newTestServer(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, true)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	cases := map[string]int{"/": 302, "/1": 200, "/2": 200, "/3": 404, "/x": 404, "/app.js": 200, "/style.css": 200}
+	for path, want := range cases {
+		res, err := client.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != want {
+			t.Errorf("GET %s = %d, want %d", path, res.StatusCode, want)
+		}
 	}
 }
 
-func TestServesClient(t *testing.T) {
-	ts, _ := newTestServer(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)})
-	res, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
+func TestSessionRequiresPairedDevice(t *testing.T) {
+	ts := newTestServer(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, true)
+	for _, auth := range []string{"", "Device nope:nope", "Bearer x"} {
+		res := postJSON(t, ts.URL+"/api/session", auth, sessionRequest{SDP: "x", Slot: 1})
+		if res.StatusCode != http.StatusUnauthorized {
+			t.Errorf("auth %q: status = %d, want 401", auth, res.StatusCode)
+		}
 	}
-	b, _ := io.ReadAll(res.Body)
-	if res.StatusCode != 200 || !bytes.Contains(b, []byte("app.js")) {
-		t.Fatalf("unexpected index: %d", res.StatusCode)
+}
+
+func TestDeniedPairing(t *testing.T) {
+	ts := newTestServer(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, false)
+	res := postJSON(t, ts.URL+"/api/pair", "", pairRequest{Name: "Stranger", Slot: 1})
+	var start pairStartResponse
+	_ = json.NewDecoder(res.Body).Decode(&start)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		r, _ := http.Get(ts.URL + "/api/pair/" + start.ID)
+		var st pairStatusResponse
+		_ = json.NewDecoder(r.Body).Decode(&st)
+		if st.Status == pairing.StateDenied {
+			if st.Secret != "" {
+				t.Fatal("denied request must not carry a secret")
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
+	t.Fatal("request was never denied")
 }
 
 // TestNegotiateAndHello plays the browser's part with a Pion peer:
@@ -70,7 +155,8 @@ func TestServesClient(t *testing.T) {
 // make the host open a virtual display at the client's size.
 func TestNegotiateAndHello(t *testing.T) {
 	fp := &fakeProvider{opened: make(chan vdisplay.Spec, 1)}
-	ts, _ := newTestServer(t, fp)
+	ts := newTestServer(t, fp, true)
+	auth := pairDevice(t, ts.URL)
 
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
@@ -103,13 +189,7 @@ func TestNegotiateAndHello(t *testing.T) {
 	}
 	<-gathered
 
-	body, _ := json.Marshal(sessionRequest{SDP: pc.LocalDescription().SDP})
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/session", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer test-token-0123456789")
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := postJSON(t, ts.URL+"/api/session", auth, sessionRequest{SDP: pc.LocalDescription().SDP, Slot: 1})
 	if res.StatusCode != 200 {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d: %s", res.StatusCode, b)
@@ -120,6 +200,11 @@ func TestNegotiateAndHello(t *testing.T) {
 	}
 	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: sr.SDP}); err != nil {
 		t.Fatal(err)
+	}
+
+	// The same display cannot be taken twice.
+	if again := postJSON(t, ts.URL+"/api/session", auth, sessionRequest{SDP: pc.LocalDescription().SDP, Slot: 1}); again.StatusCode != http.StatusConflict {
+		t.Fatalf("second session on display 1: %d, want 409", again.StatusCode)
 	}
 
 	select {
@@ -137,5 +222,128 @@ func TestNegotiateAndHello(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("no status from host")
+	}
+}
+
+// TestStreamsVideo checks the whole media path with ffmpeg's test pattern:
+// pipeline → access units → Pion track → RTP at a browser-like peer.
+func TestStreamsVideo(t *testing.T) {
+	if _, err := media.FFmpegPath(); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+	fp := &fakeProvider{opened: make(chan vdisplay.Spec, 1)}
+	pattern := func(_ string, fps, _ int) (media.Pipeline, error) {
+		return media.NewFFmpegPipeline(media.TestPatternArgs(320, 240, fps), fps)
+	}
+	ts := newTestServer(t, fp, true, pattern)
+	auth := pairDevice(t, ts.URL)
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	_, _ = pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly})
+	dc, _ := pc.CreateDataChannel("control", nil)
+	dc.OnOpen(func() {
+		b, _ := json.Marshal(controlMsg{Type: "hello", Width: 640, Height: 480, DPR: 1})
+		_ = dc.SendText(string(b))
+	})
+
+	type result struct {
+		mime     string
+		packets  int
+		sawStart bool
+	}
+	done := make(chan result, 1)
+	pc.OnTrack(func(tr *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+		r := result{mime: tr.Codec().MimeType}
+		for r.packets < 30 {
+			pkt, _, err := tr.ReadRTP()
+			if err != nil {
+				break
+			}
+			r.packets++
+			if len(pkt.Payload) > 0 {
+				typ := pkt.Payload[0] & 0x1f
+				if typ == 7 || typ == 24 || typ == 28 || typ == 5 {
+					r.sawStart = true
+				}
+			}
+		}
+		done <- r
+	})
+
+	offer, _ := pc.CreateOffer(nil)
+	gathered := webrtc.GatheringCompletePromise(pc)
+	_ = pc.SetLocalDescription(offer)
+	<-gathered
+	res := postJSON(t, ts.URL+"/api/session", auth, sessionRequest{SDP: pc.LocalDescription().SDP, Slot: 1})
+	if res.StatusCode != 200 {
+		t.Fatalf("session: %d", res.StatusCode)
+	}
+	var sr sessionResponse
+	_ = json.NewDecoder(res.Body).Decode(&sr)
+	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: sr.SDP}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case r := <-done:
+		if r.mime != webrtc.MimeTypeH264 {
+			t.Fatalf("codec = %s, want H264", r.mime)
+		}
+		if r.packets < 30 || !r.sawStart {
+			t.Fatalf("received %d packets, keyframe/SPS seen: %v", r.packets, r.sawStart)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("no video received")
+	}
+}
+
+func TestFallbackSizes(t *testing.T) {
+	got := fallbackSizes(3840, 2160)
+	want := [][2]int{{3840, 2160}, {2560, 1440}, {1920, 1080}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("4K: got %v, want %v", got, want)
+	}
+	if got := fallbackSizes(1180, 820); len(got) != 1 {
+		t.Fatalf("small screens need no fallback, got %v", got)
+	}
+	if got := fallbackSizes(1440, 2560); fmt.Sprint(got[len(got)-1]) != "[1080 1920]" {
+		t.Fatalf("portrait: got %v", got)
+	}
+}
+
+// refusingProvider rejects anything larger than 1920x1080.
+type refusingProvider struct{ fakeProvider }
+
+func (r *refusingProvider) Open(s vdisplay.Spec) (vdisplay.Display, error) {
+	if s.Width > 1920 {
+		return nil, fmt.Errorf("never became active")
+	}
+	return r.fakeProvider.Open(s)
+}
+
+func TestFallsBackToSmallerDisplay(t *testing.T) {
+	rp := &refusingProvider{fakeProvider{opened: make(chan vdisplay.Spec, 1)}}
+	m := NewManager(config.Default(), rp, func(string, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s := &Session{m: m, slot: 0, log: m.log}
+	s.ensureDisplay(controlMsg{Type: "hello", Width: 3840, Height: 2160, DPR: 1})
+	select {
+	case spec := <-rp.opened:
+		if spec.Width != 1920 || spec.Height != 1080 {
+			t.Fatalf("opened %dx%d, want 1920x1080", spec.Width, spec.Height)
+		}
+	default:
+		t.Fatal("no display opened")
+	}
+	// The same size again must not trigger another round of attempts.
+	s.ensureDisplay(controlMsg{Type: "resize", Width: 3840, Height: 2160, DPR: 1})
+	select {
+	case <-rp.opened:
+		t.Fatal("repeated request should be ignored")
+	default:
 	}
 }

@@ -20,14 +20,15 @@ import (
 	"github.com/naoking158/spareglass/internal/vdisplay"
 )
 
-// ErrTooManyClients is returned when every display slot is taken.
-var ErrTooManyClients = errors.New("all display slots are in use")
+// ErrSlotInUse is returned when another browser already shows that display.
+var ErrSlotInUse = errors.New("that display is already in use by another browser")
 
 // Manager owns the WebRTC sessions, one per connected display.
 type Manager struct {
-	cfg      config.Config
-	provider vdisplay.Provider
-	log      *slog.Logger
+	cfg         config.Config
+	provider    vdisplay.Provider
+	newPipeline media.Factory
+	log         *slog.Logger
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -35,8 +36,11 @@ type Manager struct {
 }
 
 // NewManager builds a Manager.
-func NewManager(cfg config.Config, p vdisplay.Provider, log *slog.Logger) *Manager {
-	return &Manager{cfg: cfg, provider: p, log: log, sessions: map[string]*Session{}, slots: make([]bool, cfg.MaxClients)}
+func NewManager(cfg config.Config, p vdisplay.Provider, f media.Factory, log *slog.Logger) *Manager {
+	if f == nil {
+		f = media.NewPipeline
+	}
+	return &Manager{cfg: cfg, provider: p, newPipeline: f, log: log, sessions: map[string]*Session{}, slots: make([]bool, cfg.MaxClients)}
 }
 
 // Session is one connected browser and its virtual display.
@@ -53,16 +57,19 @@ type Session struct {
 	display  vdisplay.Display
 	pipeline media.Pipeline
 	closed   bool
+	// requested is the last size the client asked for, so a repeated
+	// hello/resize with the same size is not retried (each failure costs ~5s).
+	requested [2]int
 }
 
-// Create answers a browser offer and returns the session id and answer SDP.
-func (m *Manager) Create(ctx context.Context, offer string) (string, string, error) {
-	slot := m.allocSlot()
-	if slot < 0 {
-		return "", "", ErrTooManyClients
+// Create answers a browser offer for display slot (0-based) and returns the
+// session id and answer SDP.
+func (m *Manager) Create(ctx context.Context, offer string, slot int, device string) (string, string, error) {
+	if !m.takeSlot(slot) {
+		return "", "", ErrSlotInUse
 	}
 	id := newID()
-	s := &Session{id: id, slot: slot, m: m, log: m.log.With("session", id, "slot", slot+1)}
+	s := &Session{id: id, slot: slot, m: m, log: m.log.With("session", id, "display", slot+1, "device", device)}
 
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{}) // LAN only: no STUN/TURN
 	if err != nil {
@@ -80,8 +87,12 @@ func (m *Manager) Create(ctx context.Context, offer string) (string, string, err
 		return fail(fmt.Errorf("set offer: %w", err))
 	}
 
-	s.track, err = webrtc.NewTrackLocalStaticSample(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000}, "video", "spareglass")
+	// Constrained Baseline is what every browser decodes in hardware.
+	s.track, err = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
+		MimeType:    webrtc.MimeTypeH264,
+		ClockRate:   90000,
+		SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+	}, "video", "spareglass")
 	if err != nil {
 		return fail(err)
 	}
@@ -144,16 +155,14 @@ func (m *Manager) CloseAll() {
 	}
 }
 
-func (m *Manager) allocSlot() int {
+func (m *Manager) takeSlot(i int) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for i, used := range m.slots {
-		if !used {
-			m.slots[i] = true
-			return i
-		}
+	if i < 0 || i >= len(m.slots) || m.slots[i] {
+		return false
 	}
-	return -1
+	m.slots[i] = true
+	return true
 }
 
 func (m *Manager) freeSlot(i int) {
@@ -208,27 +217,46 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	}
 
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || s.requested == [2]int{w, h} {
 		s.mu.Unlock()
 		return
 	}
-	if d := s.display; d != nil && d.Spec().Width == w && d.Spec().Height == h {
-		s.mu.Unlock()
-		return
-	}
+	s.requested = [2]int{w, h}
 	s.stopDisplayLocked()
 	s.mu.Unlock()
 
-	spec := vdisplay.Spec{
-		Name:      fmt.Sprintf("spareglass %d", s.slot+1), // stable per slot
-		Width:     w,
-		Height:    h,
-		RefreshHz: float64(s.m.cfg.FPS),
+	// macOS can refuse a display (too large, or no free display slot on
+	// chips that support few external displays). Try smaller sizes with the
+	// same aspect ratio before giving up; the browser scales the video.
+	var (
+		d       vdisplay.Display
+		lastErr error
+	)
+	for _, size := range fallbackSizes(w, h) {
+		spec := vdisplay.Spec{
+			Name:      fmt.Sprintf("spareglass %d", s.slot+1), // stable per slot
+			Width:     size[0],
+			Height:    size[1],
+			RefreshHz: float64(s.m.cfg.FPS),
+		}
+		var err error
+		d, err = s.m.provider.Open(spec)
+		if err == nil {
+			break
+		}
+		lastErr = err
+		s.log.Warn("virtual display refused", "size", fmt.Sprintf("%dx%d", size[0], size[1]), "err", err)
+		if errors.Is(err, vdisplay.ErrNotImplemented) {
+			break
+		}
+		s.send(statusMsg{Type: "status", State: "retrying", Detail: fmt.Sprintf("The host refused a %d×%d display. Trying a smaller size…", size[0], size[1])})
 	}
-	d, err := s.m.provider.Open(spec)
-	if err != nil {
-		s.log.Warn("virtual display unavailable", "err", err)
-		s.send(statusMsg{Type: "status", State: "no-display", Detail: err.Error()})
+	if d == nil {
+		detail := lastErr.Error()
+		if !errors.Is(lastErr, vdisplay.ErrNotImplemented) {
+			detail = "macOS would not add another display. Macs with base M-series chips allow few external displays: disconnect a monitor and try again. (" + detail + ")"
+		}
+		s.send(statusMsg{Type: "status", State: "no-display", Detail: detail})
 		return
 	}
 	s.mu.Lock()
@@ -239,23 +267,36 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	}
 	s.display = d
 	s.mu.Unlock()
+	w, h = d.Spec().Width, d.Spec().Height
 	s.log.Info("virtual display created", "id", d.ID(), "size", fmt.Sprintf("%dx%d", w, h))
 
-	p, err := media.NewPipeline(d.ID(), s.m.cfg.FPS, s.m.cfg.BitrateKbps)
+	p, err := s.m.newPipeline(d.ID(), s.m.cfg.FPS, s.m.cfg.BitrateKbps)
 	if err != nil {
-		s.send(statusMsg{Type: "status", State: "display-only", Detail: "virtual display created; streaming is not implemented yet", Width: w, Height: h})
+		s.log.Warn("no capture pipeline", "err", err)
+		s.send(statusMsg{Type: "status", State: "display-only", Detail: err.Error(), Width: w, Height: h})
 		return
 	}
 	s.mu.Lock()
+	if s.closed || s.display != d {
+		s.mu.Unlock()
+		_ = p.Close()
+		return
+	}
 	s.pipeline = p
 	s.mu.Unlock()
 	s.send(statusMsg{Type: "status", State: "streaming", Width: w, Height: h})
 	go func() {
+		frames := 0
 		err := p.Run(context.Background(), func(f media.EncodedFrame) error {
+			frames++
+			if frames == 1 {
+				s.log.Info("first frame sent", "bytes", len(f.Data), "keyframe", f.Keyframe)
+			}
 			return s.track.WriteSample(sampleOf(f))
 		})
 		if err != nil {
-			s.log.Warn("pipeline stopped", "err", err)
+			s.log.Warn("capture pipeline stopped", "err", err)
+			s.send(statusMsg{Type: "status", State: "error", Detail: "capture stopped: " + err.Error()})
 		}
 	}()
 }
@@ -331,4 +372,26 @@ func newID() string {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// fallbackSizes returns the requested size followed by smaller sizes with
+// the same aspect ratio that fit 2560x1440 and 1920x1080, without repeats.
+func fallbackSizes(w, h int) [][2]int {
+	sizes := [][2]int{{w, h}}
+	for _, box := range [][2]int{{2560, 1440}, {1920, 1080}} {
+		bw, bh := box[0], box[1]
+		if h > w { // portrait screens: fit a portrait box
+			bw, bh = bh, bw
+		}
+		scale := math.Min(float64(bw)/float64(w), float64(bh)/float64(h))
+		if scale >= 1 {
+			continue
+		}
+		fw := int(float64(w)*scale) &^ 1 // even sizes suit video encoders
+		fh := int(float64(h)*scale) &^ 1
+		if last := sizes[len(sizes)-1]; last != [2]int{fw, fh} {
+			sizes = append(sizes, [2]int{fw, fh})
+		}
+	}
+	return sizes
 }
