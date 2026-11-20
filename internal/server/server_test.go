@@ -255,11 +255,7 @@ func TestStreamsVirtualDisplay(t *testing.T) {
 
 func streamOverWebRTC(t *testing.T, p vdisplay.Provider, f media.Factory, width, height int, wait time.Duration) {
 	t.Helper()
-	var factories []media.Factory
-	if f != nil {
-		factories = append(factories, f)
-	}
-	ts := newTestServer(t, p, true, factories...)
+	ts := newTestServer(t, p, true, f)
 	auth := pairDevice(t, ts.URL)
 
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
