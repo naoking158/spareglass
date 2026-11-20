@@ -5,21 +5,43 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
 
-// ErrNoFFmpeg means ffmpeg is not installed or not on PATH.
-var ErrNoFFmpeg = errors.New("ffmpeg not found on PATH (macOS: brew install ffmpeg)")
+// ErrNoFFmpeg means ffmpeg is neither next to the spareglass executable nor on PATH.
+var ErrNoFFmpeg = errors.New("ffmpeg not found: keep the ffmpeg file from the download next to spareglass, or install ffmpeg")
 
-// FFmpegPath returns the ffmpeg executable, or ErrNoFFmpeg.
+// FFmpegPath returns the ffmpeg executable, or ErrNoFFmpeg. The copy shipped
+// next to the spareglass executable in release archives wins over PATH.
 func FFmpegPath() (string, error) {
+	if exe, err := os.Executable(); err == nil {
+		if p, ok := bundledFFmpeg(filepath.Dir(exe)); ok {
+			return p, nil
+		}
+	}
 	p, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		return "", ErrNoFFmpeg
 	}
 	return p, nil
+}
+
+func bundledFFmpeg(dir string) (string, bool) {
+	name := "ffmpeg"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	p := filepath.Join(dir, name)
+	info, err := os.Stat(p)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	return p, true
 }
 
 // FFmpegHasEncoder reports whether ffmpeg lists the named encoder.
