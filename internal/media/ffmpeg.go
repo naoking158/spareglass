@@ -164,11 +164,16 @@ func (t *tailBuffer) String() string {
 
 // TestPatternArgs encodes ffmpeg's test source; used by tests and handy for
 // checking the browser side without a virtual display. It uses libx264 when
-// ffmpeg has it and VideoToolbox otherwise (the LGPL ffmpeg shipped for macOS).
+// ffmpeg has it, otherwise the platform encoder that the LGPL ffmpeg shipped
+// in release archives has (VideoToolbox on macOS, Media Foundation on Windows).
 func TestPatternArgs(width, height, fps int) []string {
-	encoder := []string{"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"}
-	if !FFmpegHasEncoder("libx264") && FFmpegHasEncoder("h264_videotoolbox") {
-		encoder = []string{"-c:v", "h264_videotoolbox", "-realtime", "1", "-allow_sw", "1", "-b:v", "4000k", "-pix_fmt", "nv12"}
+	encoder := []string{"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline", "-pix_fmt", "yuv420p"}
+	switch {
+	case FFmpegHasEncoder("libx264"):
+	case FFmpegHasEncoder("h264_videotoolbox"):
+		encoder = []string{"-c:v", "h264_videotoolbox", "-realtime", "1", "-allow_sw", "1", "-profile:v", "baseline", "-b:v", "4000k", "-pix_fmt", "nv12"}
+	case FFmpegHasEncoder("h264_mf"):
+		encoder = []string{"-c:v", "h264_mf", "-rate_control", "cbr", "-b:v", "4000k", "-pix_fmt", "nv12", "-flags", "low_delay"}
 	}
 	args := []string{
 		"-hide_banner", "-loglevel", "error",
@@ -176,7 +181,7 @@ func TestPatternArgs(width, height, fps int) []string {
 	}
 	args = append(args, encoder...)
 	return append(args,
-		"-profile:v", "baseline", "-g", fmt.Sprint(fps), "-bf", "0",
+		"-g", fmt.Sprint(fps), "-bf", "0",
 		"-f", "h264", "pipe:1",
 	)
 }
