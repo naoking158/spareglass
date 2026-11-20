@@ -81,16 +81,21 @@ func (s *Store) loadLocked() error {
 	return nil
 }
 
-func (s *Store) refreshLocked() {
+// refreshLocked reloads the file if it changed on disk. On error the
+// in-memory list is stale and must not be trusted or written back.
+func (s *Store) refreshLocked() error {
 	fi, err := os.Stat(s.path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		if len(s.devices) > 0 {
-			s.devices = map[string]Device{}
-		}
-	case err == nil && !fi.ModTime().Equal(s.modTime):
-		_ = s.loadLocked()
+		s.devices = map[string]Device{}
+		s.modTime = time.Time{}
+		return nil
+	case err != nil:
+		return err
+	case fi.ModTime().Equal(s.modTime):
+		return nil
 	}
+	return s.loadLocked()
 }
 
 func (s *Store) saveLocked() error {
@@ -119,32 +124,42 @@ func (s *Store) saveLocked() error {
 // Add registers a device and returns its id and secret. The secret is not
 // kept; only its hash is stored.
 func (s *Store) Add(name string) (id, secret string, err error) {
-	id = randomHex(4)
 	secret = randomToken(24)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.refreshLocked()
+	if err := s.refreshLocked(); err != nil {
+		return "", "", err
+	}
+	for id = randomHex(4); ; id = randomHex(4) {
+		if _, taken := s.devices[id]; !taken {
+			break
+		}
+	}
 	s.devices[id] = Device{ID: id, Name: name, SecretHash: hashSecret(secret), Created: time.Now().UTC()}
 	return id, secret, s.saveLocked()
 }
 
-// Verify reports whether secret belongs to device id.
-func (s *Store) Verify(id, secret string) (Device, bool) {
+// Verify reports whether secret belongs to device id. A non-nil error means
+// the store could not be read; the answer is then false but says nothing about
+// whether the device is paired.
+func (s *Store) Verify(id, secret string) (Device, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.refreshLocked()
+	if err := s.refreshLocked(); err != nil {
+		return Device{}, false, err
+	}
 	d, ok := s.devices[id]
 	if !ok || secret == "" {
-		return Device{}, false
+		return Device{}, false, nil
 	}
-	return d, subtle.ConstantTimeCompare([]byte(d.SecretHash), []byte(hashSecret(secret))) == 1
+	return d, subtle.ConstantTimeCompare([]byte(d.SecretHash), []byte(hashSecret(secret))) == 1, nil
 }
 
 // List returns devices, oldest first.
 func (s *Store) List() []Device {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.refreshLocked()
+	_ = s.refreshLocked()
 	list := make([]Device, 0, len(s.devices))
 	for _, d := range s.devices {
 		list = append(list, d)
@@ -157,7 +172,9 @@ func (s *Store) List() []Device {
 func (s *Store) Remove(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.refreshLocked()
+	if err := s.refreshLocked(); err != nil {
+		return err
+	}
 	if _, ok := s.devices[id]; !ok {
 		return fmt.Errorf("%w: %s", ErrUnknownDevice, id)
 	}

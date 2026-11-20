@@ -178,7 +178,13 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	id, secret, ok := pairing.ParseAuthorization(r.Header.Get("Authorization"))
 	var dev pairing.Device
 	if ok {
-		dev, ok = s.opts.Pairer.Store().Verify(id, secret)
+		var err error
+		dev, ok, err = s.opts.Pairer.Store().Verify(id, secret)
+		if err != nil {
+			s.log.Error("read paired devices", "err", err)
+			writeError(w, http.StatusServiceUnavailable, "the host cannot read its list of paired browsers")
+			return
+		}
 	}
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "this browser is not paired")

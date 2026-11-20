@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,20 +19,23 @@ func TestStoreAddVerifyRemove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := s.Verify(id, secret); !ok {
+	if _, ok, _ := s.Verify(id, secret); !ok {
 		t.Fatal("fresh device should verify")
 	}
-	if _, ok := s.Verify(id, secret+"x"); ok {
+	if _, ok, _ := s.Verify(id, secret+"x"); ok {
 		t.Fatal("wrong secret should not verify")
 	}
 
 	// A second store (like the CLI) revokes; the first notices.
-	time.Sleep(10 * time.Millisecond)
 	other, _ := OpenStore(path)
 	if err := other.Remove(id); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := s.Verify(id, secret); ok {
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.Verify(id, secret); ok {
 		t.Fatal("revoked device should not verify")
 	}
 }
@@ -72,7 +76,7 @@ func TestPairerApproveAndDeny(t *testing.T) {
 		return "", ""
 	}
 	dev, sec := waitFor(good.ID, StateApproved)
-	if _, ok := s.Verify(dev, sec); !ok {
+	if _, ok, _ := s.Verify(dev, sec); !ok {
 		t.Fatal("approved credentials should verify")
 	}
 	if _, _, again, _ := p.Status(good.ID); again != "" {
