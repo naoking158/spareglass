@@ -23,9 +23,17 @@ jobs:
           key: ffmpeg-macos-${{ hashFiles('packaging/macos/build-ffmpeg.sh') }}
       - if: steps.cache.outputs.cache-hit != 'true'
         run: packaging/macos/build-ffmpeg.sh third_party/macos
-      - run: |
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Pipeline tests against the bundled ffmpeg only
+        run: |
           lipo -info third_party/macos/ffmpeg
-          third_party/macos/ffmpeg -hide_banner -encoders | grep h264_videotoolbox
+          dir=$(mktemp -d)
+          cp third_party/macos/ffmpeg "$dir/"
+          go test -c -o "$dir/media.test" ./internal/media
+          cd "$dir" && PATH=/usr/bin:/bin ./media.test -test.v -test.run FFmpeg | tee test.log
+          ! grep -q -- "--- SKIP" test.log
       - uses: actions/upload-artifact@v4
         with:
           name: ffmpeg-macos

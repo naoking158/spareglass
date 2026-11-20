@@ -48,8 +48,8 @@ build() {
 
 build arm64
 build x86_64
-lipo -create -output "$out/ffmpeg" arm64/ffmpeg x86_64/ffmpeg
 cp "$src/COPYING.LGPLv2.1" "$out/ffmpeg-LICENSE.txt"
 printf '\nffmpeg %s, source: https://ffmpeg.org/releases/ffmpeg-%s.tar.xz\nBuilt by packaging/macos/build-ffmpeg.sh in https://github.com/naoking158/spareglass\n' \
 	"$FFMPEG_VERSION" "$FFMPEG_VERSION" >>"$out/ffmpeg-LICENSE.txt"
+lipo -create -output "$out/ffmpeg" arm64/ffmpeg x86_64/ffmpeg
 "$out/ffmpeg" -hide_banner -version | head -1

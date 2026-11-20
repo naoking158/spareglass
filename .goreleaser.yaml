@@ -54,6 +54,12 @@ archives:
           mode: 0755
       - src: third_party/macos/ffmpeg-LICENSE.txt
         strip_parent: true
+      - src: packaging/macos/HOW-TO-USE.txt
+        strip_parent: true
+      - src: packaging/macos/Start spareglass.command
+        strip_parent: true
+        info:
+          mode: 0755
 
   - id: other
     ids: [other]
@@ -80,5 +86,15 @@ changelog:
       - "^test:"
 
 release:
+  header: |
+    ## ダウンロード / Download
+
+    | パソコン | ファイル |
+    |---|---|
+    | Mac (macOS 14 以降) | `spareglass_{{ .Version }}_mac.zip` |
+    | Windows 10 / 11 | `spareglass_{{ .Version }}_windows_x64.zip` |
+
+    ダウンロードしたら展開（ダブルクリック）して、フォルダの中の `HOW-TO-USE.txt` を読んでください。
+    Extract the zip and follow `HOW-TO-USE.txt` inside the folder.
   draft: false
   prerelease: auto
