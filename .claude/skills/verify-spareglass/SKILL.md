@@ -17,7 +17,7 @@ Run `sg` from inside the spareglass checkout you want to verify (it builds that 
 ## Requirements
 
 - macOS 14+ with `go`, `tmux`, `python3`, `ffmpeg` (`brew install ffmpeg`).
-- `playwright-cli` through mise node. A local `mise.toml` without node makes the mise shim fail inside the checkout, so `sg` runs `mise exec node@$SG_NODE_VERSION` (default `26.8.2`). Override `SG_NODE_VERSION` if that version is not installed (`mise ls node`).
+- `playwright-cli` through mise node. The repo's `mise.toml` pins no node, so the mise shim fails inside the checkout, so `sg` runs `mise exec node@$SG_NODE_VERSION` (default `26.8.2`). Override `SG_NODE_VERSION` if that version is not installed (`mise ls node`).
 - `--real` mode only: Screen Recording permission for the terminal app that runs Claude Code.
 
 ## Launch
