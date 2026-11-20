@@ -15,21 +15,44 @@ type TerminalApprover struct {
 }
 
 // NewTerminalApprover reads answers from in (usually os.Stdin). If in reaches
-// EOF (no terminal attached), every later request is denied.
+// EOF (no terminal attached), every later request is denied. Lines typed while
+// no prompt is shown are discarded, so a stray "y" never answers a later request.
 func NewTerminalApprover(in io.Reader, out io.Writer) *TerminalApprover {
-	t := &TerminalApprover{out: out, lines: make(chan string)}
+	t := &TerminalApprover{out: out, lines: make(chan string, 64)}
 	go func() {
 		sc := bufio.NewScanner(in)
 		for sc.Scan() {
-			t.lines <- sc.Text()
+			select {
+			case t.lines <- sc.Text():
+			default:
+			}
 		}
 		close(t.lines)
 	}()
 	return t
 }
 
+// discardTyped drops lines read before the prompt. It reports false once the
+// input has reached EOF.
+func (t *TerminalApprover) discardTyped() bool {
+	for {
+		select {
+		case _, ok := <-t.lines:
+			if !ok {
+				return false
+			}
+		default:
+			return true
+		}
+	}
+}
+
 // Ask implements Approver.
 func (t *TerminalApprover) Ask(ctx context.Context, r *Request) bool {
+	if !t.discardTyped() {
+		fmt.Fprintf(t.out, "\n  %s (%s) wants to connect as display %d, but there is no terminal input; request denied.\n", r.Name, r.Addr, r.Slot)
+		return false
+	}
 	fmt.Fprintf(t.out, "\n  %s (%s) wants to connect as display %d.\n  Code shown on that screen: %s\n  Allow? [y/N] ",
 		r.Name, r.Addr, r.Slot, r.Code)
 	for {

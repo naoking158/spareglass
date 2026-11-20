@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,9 +87,14 @@ func TestPairerApproveAndDeny(t *testing.T) {
 }
 
 func TestTerminalApprover(t *testing.T) {
-	in := strings.NewReader("maybe\ny\n")
+	pr, pw := io.Pipe()
+	defer pw.Close()
 	var out strings.Builder
-	a := NewTerminalApprover(in, &out)
+	a := NewTerminalApprover(pr, &out)
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_, _ = pw.Write([]byte("maybe\ny\n"))
+	}()
 	if !a.Ask(context.Background(), &Request{Name: "Chrome on Android", Code: "0420", Slot: 1}) {
 		t.Fatal("expected approval")
 	}
