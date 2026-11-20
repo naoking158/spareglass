@@ -77,7 +77,7 @@ jobs:
           }
           '@ | Set-Content $env:RUNNER_TEMP\disp.cs
           @'
-          function Pipe([string]$cmd) { $c = New-Object System.IO.Pipes.NamedPipeClientStream(".", "MTTVirtualDisplayPipe", [System.IO.Pipes.PipeDirection]::InOut); $c.Connect(3000); $b=[System.Text.Encoding]::Unicode.GetBytes($cmd); $c.Write($b,0,$b.Length); $c.Flush(); $buf=New-Object byte[] 1024; $c.ReadTimeout=3000; $n=0; try { $n=$c.Read($buf,0,1024) } catch { "read: $_" }; $c.Close(); [System.Text.Encoding]::Unicode.GetString($buf,0,$n) }
+          function Pipe([string]$cmd) { $c = New-Object System.IO.Pipes.NamedPipeClientStream(".", "MTTVirtualDisplayPipe", [System.IO.Pipes.PipeDirection]::InOut); $c.Connect(3000); $b=[System.Text.Encoding]::Unicode.GetBytes($cmd); $c.Write($b,0,$b.Length); $c.Flush(); $buf=New-Object byte[] 1024; $n=0; try { $n=$c.Read($buf,0,1024) } catch { "read: $_" }; $c.Close(); [System.Text.Encoding]::Unicode.GetString($buf,0,$n) }
           '@ | Set-Content $env:RUNNER_TEMP\pipe.ps1
       - name: Probe and add 1180x820
         shell: pwsh
