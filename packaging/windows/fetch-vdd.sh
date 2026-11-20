@@ -12,13 +12,15 @@ VDD_ASSET=Virtual.Display.Driver-v25.05.03-setup-x64.exe
 VDD_SHA256=ca10b85babecfb636c85b3f04d2306968d4f940dd3dd35767f866207bfba846e
 LICENSE_SHA256=c2285c867ddc9b88f43b4f8fa2c77a9eec66207166c1217b37353a2ccd62ac03
 
+sha256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+
 out=$(mkdir -p "$1" && cd "$1" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 gh release download "$VDD_TAG" --repo VirtualDrivers/Virtual-Display-Driver -p "$VDD_ASSET" -D "$work"
 gh api "repos/VirtualDrivers/Virtual-Display-Driver/contents/LICENSE?ref=$VDD_TAG" -q .content | base64 -d >"$work/LICENSE"
-(cd "$work" && printf '%s  %s\n%s  %s\n' "$VDD_SHA256" "$VDD_ASSET" "$LICENSE_SHA256" LICENSE | shasum -a 256 -c -)
+(cd "$work" && printf '%s  %s\n%s  %s\n' "$VDD_SHA256" "$VDD_ASSET" "$LICENSE_SHA256" LICENSE | sha256 -c -)
 cp "$work/$VDD_ASSET" "$out/VirtualDisplayDriver-setup.exe"
 {
 	cat "$work/LICENSE"

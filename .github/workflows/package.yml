@@ -51,7 +51,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: third_party/windows
-          key: ffmpeg-windows-${{ hashFiles('packaging/windows/*') }}
+          key: ffmpeg-windows-${{ hashFiles('packaging/windows/build-ffmpeg.sh', 'packaging/windows/ffmpeg.manifest') }}
       - if: steps.cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update -qq
@@ -98,17 +98,17 @@ jobs:
         with:
           name: ffmpeg-windows
           path: third_party/windows
-      - name: Install the Virtual Display Driver (pinned, hash-checked)
+      - name: Fetch the Virtual Display Driver shipped in the archives
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: packaging/windows/fetch-vdd.sh "$RUNNER_TEMP/vdd"
+      - name: Install the Virtual Display Driver
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $dir = Join-Path $env:RUNNER_TEMP "vdd"; New-Item -ItemType Directory -Force $dir | Out-Null
-          gh release download 25.5.2 --repo VirtualDrivers/Virtual-Display-Driver -p "Virtual.Display.Driver-v25.05.03-setup-x64.exe" -D $dir
-          $f = Join-Path $dir "Virtual.Display.Driver-v25.05.03-setup-x64.exe"
-          $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
-          "sha256: $h"
-          if ($h -ne "ca10b85babecfb636c85b3f04d2306968d4f940dd3dd35767f866207bfba846e") { throw "unexpected installer hash" }
+          $f = Join-Path $env:RUNNER_TEMP "vdd\VirtualDisplayDriver-setup.exe"
 
           # Windows asks "Would you like to install this device software?" even
           # for the signed driver; on this throwaway VM the step clicks Install.
@@ -233,3 +233,4 @@ jobs:
           for f in ${{ matrix.files }}; do test -e "$f" || { echo "missing $f"; exit 1; }; done
           ./spareglass doctor | tee doctor.txt
           grep "Capture/encode" doctor.txt | grep -q unpacked
+          ! grep "Capture/encode" doctor.txt | grep -q "NOT AVAILABLE"
