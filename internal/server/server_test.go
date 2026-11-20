@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -235,7 +236,26 @@ func TestStreamsVideo(t *testing.T) {
 	pattern := func(_ string, fps, _ int) (media.Pipeline, error) {
 		return media.NewFFmpegPipeline(media.TestPatternArgs(320, 240, fps), fps)
 	}
-	ts := newTestServer(t, fp, true, pattern)
+	streamOverWebRTC(t, fp, pattern, 640, 480, 15*time.Second)
+}
+
+// TestStreamsVirtualDisplay runs the same path with this OS's real virtual
+// display and capture pipeline. It changes the desktop, so it only runs with
+// SPAREGLASS_VDD_TEST=1 (CI sets it on a Windows runner with the driver).
+func TestStreamsVirtualDisplay(t *testing.T) {
+	if os.Getenv("SPAREGLASS_VDD_TEST") == "" {
+		t.Skip("set SPAREGLASS_VDD_TEST=1 to create a real virtual display")
+	}
+	p := vdisplay.Default()
+	if err := p.Available(); err != nil {
+		t.Fatal(err)
+	}
+	streamOverWebRTC(t, p, nil, 1180, 820, 60*time.Second)
+}
+
+func streamOverWebRTC(t *testing.T, p vdisplay.Provider, f media.Factory, width, height int, wait time.Duration) {
+	t.Helper()
+	ts := newTestServer(t, p, true, f)
 	auth := pairDevice(t, ts.URL)
 
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
@@ -247,7 +267,7 @@ func TestStreamsVideo(t *testing.T) {
 		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly})
 	dc, _ := pc.CreateDataChannel("control", nil)
 	dc.OnOpen(func() {
-		b, _ := json.Marshal(controlMsg{Type: "hello", Width: 640, Height: 480, DPR: 1})
+		b, _ := json.Marshal(controlMsg{Type: "hello", Width: float64(width), Height: float64(height), DPR: 1})
 		_ = dc.SendText(string(b))
 	})
 
@@ -297,7 +317,7 @@ func TestStreamsVideo(t *testing.T) {
 		if r.packets < 30 || !r.sawStart {
 			t.Fatalf("received %d packets, keyframe/SPS seen: %v", r.packets, r.sawStart)
 		}
-	case <-time.After(15 * time.Second):
+	case <-time.After(wait):
 		t.Fatal("no video received")
 	}
 }

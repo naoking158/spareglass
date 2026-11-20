@@ -82,9 +82,13 @@ jobs:
           dir=$(mktemp -d)
           cp third_party/windows/ffmpeg.exe "$dir/"
           go test -c -o "$dir/media.test.exe" ./internal/media
-          cd "$dir" && PATH=/usr/bin:/bin ./media.test.exe -test.v | tee test.log
+          go test -c -o "$dir/server.test.exe" ./internal/server
+          cd "$dir"
+          PATH=/usr/bin:/bin ./media.test.exe -test.v | tee test.log
+          PATH=/usr/bin:/bin ./server.test.exe -test.v -test.run TestStreamsVideo | tee -a test.log
           ! grep -q -- "--- SKIP" test.log
           grep -q -- "--- PASS: TestPipelineCapturesPrimaryMonitor" test.log
+          grep -q -- "--- PASS: TestStreamsVideo" test.log
 
   windows-vdd:
     needs: ffmpeg-windows
@@ -147,7 +151,7 @@ jobs:
           Start-Sleep -Seconds 10
           "--- install log (last lines)"; Get-Content "$env:RUNNER_TEMP\vdd-install.log" -ErrorAction SilentlyContinue | Select-Object -Last 12
           "--- settings file"; Test-Path C:\VirtualDisplayDriver\vdd_settings.xml
-      - name: Virtual display tests (create, stream, resize, detach)
+      - name: Virtual display tests (create, stream, resize, detach, WebRTC)
         shell: bash
         env:
           SPAREGLASS_VDD_TEST: "1"
@@ -158,8 +162,12 @@ jobs:
           dir=$(mktemp -d)
           cp third_party/windows/ffmpeg.exe "$dir/"
           go test -c -o "$dir/vdisplay.test.exe" ./internal/vdisplay
-          cd "$dir" && ./vdisplay.test.exe -test.v -test.run VDD | tee test.log
+          go test -c -o "$dir/server.test.exe" ./internal/server
+          cd "$dir"
+          ./vdisplay.test.exe -test.v -test.run VDD | tee test.log
+          ./server.test.exe -test.v -test.run TestStreamsVirtualDisplay | tee -a test.log
           grep -q -- "--- PASS: TestVDDDisplayStreams" test.log
+          grep -q -- "--- PASS: TestStreamsVirtualDisplay" test.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
