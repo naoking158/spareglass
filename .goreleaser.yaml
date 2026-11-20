@@ -2,8 +2,9 @@
 # Run by .github/workflows/package.yml (release on v* tags, snapshot in CI).
 #
 # Archives are named for people, not toolchains: one universal "mac" zip and
-# "windows_x64" / "windows_arm64" zips. Both ship an LGPL ffmpeg that
-# packaging/{macos,windows}/build-ffmpeg.sh builds into third_party/ beforehand.
+# one "windows_x64" zip (the bundled driver installer and ffmpeg are x64
+# only). Both ship an LGPL ffmpeg that packaging/{macos,windows}/build-ffmpeg.sh
+# builds into third_party/ beforehand.
 version: 2
 
 project_name: spareglass
@@ -30,7 +31,7 @@ builds:
     binary: spareglass
     env: *env
     goos: [windows]
-    goarch: [amd64, arm64]
+    goarch: [amd64]
     flags: *flags
     ldflags: *ldflags
 
@@ -70,7 +71,6 @@ archives:
         info:
           mode: 0755
 
-  # The x64 ffmpeg.exe also runs on Windows on Arm (x64 emulation).
   - id: windows
     ids: [windows]
     formats: [zip]
@@ -82,6 +82,12 @@ archives:
       - src: third_party/windows/ffmpeg.exe
         strip_parent: true
       - src: third_party/windows/ffmpeg-LICENSE.txt
+        strip_parent: true
+      - src: third_party/windows/VirtualDisplayDriver-setup.exe
+        strip_parent: true
+      - src: third_party/windows/VirtualDisplayDriver-LICENSE.txt
+        strip_parent: true
+      - src: packaging/windows/HOW-TO-USE.txt
         strip_parent: true
 
   - id: other
@@ -112,6 +118,7 @@ release:
     | パソコン | ファイル |
     |---|---|
     | Mac (macOS 14 以降) | `spareglass_{{ .Version }}_mac.zip` |
+    | Windows 10 / 11 | `spareglass_{{ .Version }}_windows_x64.zip` |
 
     ダウンロードしたら展開（ダブルクリック）して、フォルダの中の `HOW-TO-USE.txt` を読んでください。
     Extract the zip and follow `HOW-TO-USE.txt` inside the folder.
