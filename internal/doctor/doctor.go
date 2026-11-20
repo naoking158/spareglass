@@ -43,6 +43,12 @@ func Run(w io.Writer, version string, p vdisplay.Provider) error {
 		}
 		fmt.Fprintf(w, "Capture/encode:   ffmpeg %s, encoder %s\n", ff, enc)
 		fmt.Fprintln(w, "                  needs Screen Recording permission for this terminal app")
+	case runtime.GOOS == "windows":
+		if media.FFmpegHasEncoder("h264_mf") {
+			fmt.Fprintf(w, "Capture/encode:   ffmpeg %s, gdigrab + h264_mf (Media Foundation)\n", ff)
+		} else {
+			fmt.Fprintf(w, "Capture/encode:   NOT AVAILABLE: ffmpeg %s has no h264_mf encoder\n", ff)
+		}
 	default:
 		fmt.Fprintf(w, "Capture/encode:   NOT AVAILABLE on %s yet (ffmpeg found at %s)\n", runtime.GOOS, ff)
 	}

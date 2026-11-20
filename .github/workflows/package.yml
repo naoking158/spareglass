@@ -185,6 +185,9 @@ jobs:
         with:
           name: ffmpeg-windows
           path: third_party/windows
+      - run: packaging/windows/fetch-vdd.sh third_party/windows
+        env:
+          GH_TOKEN: ${{ github.token }}
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
@@ -200,3 +203,33 @@ jobs:
             dist/*.tar.gz
             dist/checksums.txt
           retention-days: 7
+
+  # Unpack the archives a person would download and run them as-is.
+  archive-smoke:
+    if: inputs.snapshot
+    needs: goreleaser
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            archive: windows_x64
+            files: spareglass.exe ffmpeg.exe VirtualDisplayDriver-setup.exe HOW-TO-USE.txt
+          - os: macos-latest
+            archive: mac
+            files: spareglass ffmpeg "Start spareglass.command" HOW-TO-USE.txt
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-archives
+      - name: Unpack and run doctor
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir unpacked
+          unzip -q ./*_${{ matrix.archive }}.zip -d unpacked
+          cd unpacked/*/
+          for f in ${{ matrix.files }}; do test -e "$f" || { echo "missing $f"; exit 1; }; done
+          ./spareglass doctor | tee doctor.txt
+          grep "Capture/encode" doctor.txt | grep -q unpacked

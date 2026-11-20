@@ -77,6 +77,7 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
+		holdWindow()
 		os.Exit(1)
 	}
 }
@@ -120,6 +121,8 @@ func runServe(args []string) error {
 	if err := provider.Available(); err != nil {
 		log.Warn("virtual displays are not available; clients can connect but will not get a screen yet",
 			"provider", provider.Name(), "err", err)
+	} else if err := provider.CloseAll(); err != nil {
+		log.Warn("removing leftover virtual displays", "err", err)
 	}
 
 	ln, err := listen(cfg.Addr, log)
