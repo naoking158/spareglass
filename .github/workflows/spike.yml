@@ -5,9 +5,24 @@ on:
 permissions:
   contents: read
 jobs:
+  ffmpeg-win:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq mingw-w64 >/dev/null
+      - run: packaging/windows/build-ffmpeg.sh third_party/windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-win
+          path: third_party/windows
   spike:
+    needs: ffmpeg-win
     runs-on: windows-latest
     steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-win
+          path: ffwin
 
       - name: Install Virtual Display Driver 25.5.2 (pinned, hash-checked)
         shell: pwsh
@@ -102,27 +117,32 @@ jobs:
           Start-Sleep 2
           "--- displays after set"; [Disp]::List()
           "$dev" | Set-Content $env:RUNNER_TEMP\dev.txt
-      - name: ffmpeg capture
+      - name: ffmpeg capture (own build)
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           Add-Type -Path $env:RUNNER_TEMP\disp.cs
-          gh release download latest --repo BtbN/FFmpeg-Builds -p "ffmpeg-master-latest-win64-lgpl.zip" -D $env:RUNNER_TEMP
-          Expand-Archive $env:RUNNER_TEMP\ffmpeg-master-latest-win64-lgpl.zip $env:RUNNER_TEMP\ff
-          $ff = (Get-ChildItem $env:RUNNER_TEMP\ff -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
+          $ff = (Resolve-Path ffwin\ffmpeg.exe).Path
           & $ff -hide_banner -version | Select-Object -First 1
+          & $ff -hide_banner -encoders | Select-String h264
           mkdir out | Out-Null
-          [Disp]::List()
-          "--- gdigrab region 1024,0 1180x820 + libopenh264"
-          & $ff -hide_banner -nostdin -loglevel warning -f gdigrab -framerate 30 -offset_x 1024 -offset_y 0 -video_size 1180x820 -draw_mouse 1 -i desktop -t 3 -c:v libopenh264 -b:v 6M -g 30 -bf 0 -f h264 out/gdi_openh264.h264; "rc=$LASTEXITCODE"
-          "--- gdigrab + h264_mf"
-          & $ff -hide_banner -nostdin -loglevel warning -f gdigrab -framerate 30 -offset_x 1024 -offset_y 0 -video_size 1180x820 -i desktop -t 3 -c:v h264_mf -b:v 6M -g 30 -bf 0 -pix_fmt nv12 -f h264 out/gdi_mf.h264; "rc=$LASTEXITCODE"
-          "--- ddagrab output_idx=1"
-          & $ff -hide_banner -nostdin -loglevel warning -filter_complex "ddagrab=output_idx=1:framerate=30,hwdownload,format=bgra" -t 3 -c:v libopenh264 -b:v 6M -f h264 out/dda.h264; "rc=$LASTEXITCODE"
+          "--- gdigrab + h264_mf (spareglass args)"
+          & $ff -hide_banner -nostdin -loglevel warning -f gdigrab -framerate 30 -offset_x 1024 -offset_y 0 -video_size 1180x820 -draw_mouse 1 -i desktop -t 3 -c:v h264_mf -rate_control cbr -scenario display_remote_desktop -b:v 6000k -g 30 -bf 0 -pix_fmt nv12 -bsf:v dump_extra=freq=keyframe -f h264 out/own_mf.h264; "rc=$LASTEXITCODE"
+          "--- hw_encoding 1"
+          & $ff -hide_banner -nostdin -loglevel warning -f gdigrab -framerate 30 -offset_x 1024 -offset_y 0 -video_size 1180x820 -i desktop -t 2 -c:v h264_mf -hw_encoding 1 -b:v 6000k -pix_fmt nv12 -f h264 out/own_mf_hw.h264; "rc=$LASTEXITCODE"
+          "--- test pattern"
+          & $ff -hide_banner -nostdin -loglevel warning -re -f lavfi -i testsrc2=size=320x240:rate=30 -t 2 -c:v h264_mf -b:v 2000k -g 30 -bf 0 -pix_fmt nv12 -f h264 out/own_tp.h264; "rc=$LASTEXITCODE"
           Get-ChildItem out | Format-Table Name, Length
-          foreach ($f in Get-ChildItem out -Filter *.h264) { & $ff -hide_banner -nostdin -loglevel error -i $f.FullName -vf "select=eq(n\,30)" -frames:v 1 ("out/" + $f.BaseName + ".png") }
-          Copy-Item $ff out/ -ErrorAction SilentlyContinue; Remove-Item out/ffmpeg.exe
+      - name: Detach and reattach
+        shell: pwsh
+        run: |
+          Add-Type -Path $env:RUNNER_TEMP\disp.cs
+          $dev = (Get-Content $env:RUNNER_TEMP\dev.txt).Trim()
+          "detach -> " + [Disp]::Set($dev, 0, 0, 0, 0)
+          Start-Sleep 2; [Disp]::List()
+          "reattach -> " + [Disp]::Set($dev, 1180, 820, 1024, 0)
+          Start-Sleep 2; [Disp]::List()
+          "detach again -> " + [Disp]::Set($dev, 0, 0, 0, 0)
+          Start-Sleep 2; [Disp]::List()
       - uses: actions/upload-artifact@v4
         if: always()
         with:
