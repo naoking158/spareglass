@@ -21,7 +21,7 @@ host (this computer)                           display device
 ┌──────────────────────────────┐              ┌──────────────┐
 │ virtual display ─▶ capture   │   WebRTC     │ browser      │
 │       ─▶ H.264 encode ───────┼─────────────▶│ <video>      │
-│ HTTP server + pairing (y/N) │◀─────────────┤ screen size  │
+│ HTTP server + pairing (y/N)  │◀─────────────┤ screen size  │
 └──────────────────────────────┘   LAN only   └──────────────┘
 ```
 

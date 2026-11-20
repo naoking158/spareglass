@@ -6,7 +6,9 @@
 - `internal/vdisplay`: create/remove virtual monitors. Recreate instead of resizing
   (macOS: a mode change makes a CGVirtualDisplay unremovable). Use stable names
   ("spareglass N"); macOS stores an ICC profile per monitor identity.
-- `internal/media`: capture → H.264 encode. Not implemented; will need cgo.
+- `internal/media`: capture → H.264 encode. macOS runs ffmpeg (avfoundation + VideoToolbox)
+  and splits its Annex-B output; Windows/Linux are not implemented. In-process capture/encode
+  per OS is the long-term plan and will likely need cgo.
 - `internal/pairing`: browser approval (terminal y/N) and remembered devices (devices.json).
 - `internal/server`: routes /{n} (display n), /api/pair, /api/session (non-trickle WebRTC).
   `server_test.go` negotiates a real Pion peer; keep it green.

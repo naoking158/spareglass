@@ -193,7 +193,11 @@ func printBanner(port, displays, paired int, cfgPath string) {
 	fmt.Println()
 	fmt.Println("spareglass is running.")
 	if len(urls) == 0 {
-		fmt.Println("  No LAN address found. Open http://<this-computer-ip>/1 on the other device.")
+		host := "<this-computer-ip>"
+		if port != 80 {
+			host = fmt.Sprintf("%s:%d", host, port)
+		}
+		fmt.Printf("  No LAN address found. Open http://%s/1 on the other device.\n", host)
 	} else {
 		if qr, err := qrcode.New(urls[0], qrcode.Low); err == nil {
 			fmt.Print(qr.ToSmallString(false))
