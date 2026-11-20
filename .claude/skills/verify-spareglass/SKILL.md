@@ -1,6 +1,6 @@
 ---
 name: verify-spareglass
-description: Launch an isolated spareglass host (Go, macOS) on loopback in tmux, drive its embedded browser client with headless Chrome via playwright-cli, approve pairing in the host terminal, and prove that pairing, WebRTC streaming, virtual displays and the devices CLI work, with JSON client state, screenshots and the host log as evidence. Use after changing server, pairing, vdisplay, media or web/ code, before opening a PR, or when asked to verify, reproduce or 動作確認 spareglass behavior.
+description: Launch an isolated spareglass host (Go; macOS natively, Linux in Docker) on loopback in tmux, drive its embedded browser client with headless Chrome via playwright-cli, approve pairing in the host terminal, and prove that pairing, WebRTC streaming, virtual displays and the devices CLI work, with JSON client state, screenshots and the host log as evidence. Use after changing server, pairing, vdisplay, media or web/ code, before opening a PR, or when asked to verify, reproduce or 動作確認 spareglass behavior.
 ---
 
 # verify-spareglass
@@ -43,6 +43,22 @@ Pick the mode by what changed:
 | `internal/vdisplay`, `internal/media` | `up --real` | the virtual display is captured and its desktop arrives in the browser. |
 
 Never report a test-pattern run as proof of capture/encode.
+
+### Linux target
+
+```sh
+$SG up --linux
+```
+
+This cross-builds `GOOS=linux` for the Docker daemon's arch, runs the host in container `sg-<id>` (`debian:bookworm-slim`, stdin attached through tmux so `sg answer` works), and runs Debian `chromium` in container `sg-<id>-browser`, which shares the host container's network namespace. playwright-cli on the Mac drives that browser over CDP, and the page URL is `http://127.0.0.1:7878/N` as seen from inside. The browser image `sg-linux-chromium` is built from `linux/Dockerfile.browser` on first use. Every other `sg` command works unchanged. `devices` runs `docker exec`, and `displays` is macOS only.
+
+It needs Docker (colima or Docker Desktop) with `$HOME` mounted, because the run directory under `~/.cache` is bind-mounted as `/app`.
+
+What a Linux run can prove today: the Linux build starts, the config path is `/root/.config/spareglass/`, pairing works, WebRTC reaches `connected`, the client ends at the `no-display` message (`virtual displays are not implemented on this platform yet…`), and the devices CLI works. Streaming is unreachable on Linux until `internal/vdisplay` and `internal/media` are implemented, so report it as unreachable. A plain container has no compositor, so this target cannot verify future portal/Mutter virtual-display work either. That needs a GNOME/KDE session with PipeWire.
+
+The browser must be able to receive H.264. Check with `$SG pw $ID --raw eval '() => RTCRtpReceiver.getCapabilities("video").codecs.some(c => /h264/i.test(c.mimeType))'`. Debian `chromium` returns `true`. `chromedp/headless-shell` returns `false`, and the host then fails with `unable to start track, codec is not supported by remote` (HTTP 500).
+
+There is no Windows target. Docker on macOS cannot run Windows, and verifying Windows needs a Windows VM or a Windows CI runner.
 
 ## Doctor
 
@@ -119,6 +135,8 @@ If `up` printed a RUN_ID but failed later, still run `sg down <RUN_ID>`.
 - In test-pattern mode `videoWidth` is always 1280×720 whatever the display size. Check the display size in `host.log` (`virtual display created ... size=`) or `sg displays`.
 - The console always shows one error: `/favicon.ico` 404. Ignore it, but read any other console errors.
 - All tabs of one `sg` session share localStorage, so pairing in one tab pairs them all.
+- A browser without H.264 sees only `could not start session` and gets HTTP 500 from `/api/session`. The real cause (`codec is not supported by remote`) appears only in `host.log`.
+- Linux: the headless Chromium screen is 800×600, not 1280×720.
 
 ## When you cannot verify
 

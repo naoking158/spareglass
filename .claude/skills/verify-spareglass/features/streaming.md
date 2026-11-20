@@ -28,6 +28,8 @@ Preconditions: the browser is paired (run [Pairing](./pairing.md) `pair-approve`
 
 ## Gotchas
 
+- Linux target (`sg up --linux`): streaming is unreachable because virtual displays are not implemented. The journey stops after Connect with `statusError` and the status `Connected, but the host cannot create a display: …`, and the log shows `state=connected` followed by `virtual display refused`. Report this as unreachable, not verified.
+
 - `#status` stays `Connecting…` while live. Assert `live`, `videoWidth` and increasing `t`, not the status text.
 - Test-pattern video is always 1280×720. Use the log or `sg displays` for the display size.
 - If macOS refuses the size, the host retries smaller sizes (`virtual display refused` in the log, status `retrying`), and then reports `no-display`. Each refusal costs about 5s, so allow 20s or more in `wait`.

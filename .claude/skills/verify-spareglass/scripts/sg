@@ -5,6 +5,8 @@ set -euo pipefail
 
 ROOT="${SG_VERIFY_ROOT:-$HOME/.cache/spareglass-verify}"
 NODE_VERSION="${SG_NODE_VERSION:-26.8.2}"
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BROWSER_IMAGE="sg-linux-chromium"
 
 die() { echo "sg: $*" >&2; exit 1; }
 
@@ -16,6 +18,8 @@ load() {
   source "$RUN/run.env"
   EV="$RUN/evidence"
 }
+
+free_port() { python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])'; }
 
 # Fingerprint of the checkout: HEAD + tracked changes + untracked files.
 fingerprint() {
@@ -38,6 +42,15 @@ pw() {
   return $rc
 }
 
+# Runs the run's own spareglass binary (devices CLI etc.) against its isolated store.
+host_cli() {
+  if [[ "$TARGET" == linux ]]; then
+    docker exec "$SESSION" /app/spareglass "$@"
+  else
+    HOME="$RUN/home" "$RUN/spareglass" "$@"
+  fi
+}
+
 STATE_JS='() => {
   const v = document.getElementById("screen");
   const c = document.getElementById("code");
@@ -54,15 +67,24 @@ STATE_JS='() => {
   };
 }'
 
+wait_http() { # url, tries
+  for _ in $(seq 1 "$2"); do curl -fsS "$1" >/dev/null 2>&1 && return 0; sleep 0.25; done
+  return 1
+}
+
 cmd_up() {
-  local mode="test-pattern" repo
+  local target=macos mode=test-pattern repo
   repo="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run from inside the spareglass checkout"
   [[ -f "$repo/cmd/spareglass/main.go" ]] || die "$repo is not a spareglass checkout"
-  case "${1:-}" in
-    --real) mode="real" ;;
-    ""|--test-pattern) ;;
-    *) die "unknown flag $1 (use --real or --test-pattern)" ;;
-  esac
+  for a in "$@"; do
+    case "$a" in
+      --real) mode=real ;;
+      --test-pattern) mode=test-pattern ;;
+      --linux) target=linux ;;
+      *) die "unknown flag $a (use --real, --test-pattern, --linux)" ;;
+    esac
+  done
+  [[ "$target" == linux && "$mode" == real ]] && die "--real is macOS only (Linux has no virtual display or capture yet)"
 
   local id; id="$(date +%Y%m%d-%H%M%S)-$$"
   local d="$ROOT/$id"
@@ -71,34 +93,70 @@ cmd_up() {
 
   local rev; rev="$(cd "$repo" && git rev-parse --short HEAD)"
   local fp; fp="$(fingerprint "$repo")"
-  (cd "$repo" && go build -o "$d/spareglass" ./cmd/spareglass) || die "go build failed (run: sg down $id)"
-  local port; port="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')"
-  local flags="serve -v --addr 127.0.0.1:$port"
-  [[ "$mode" == "test-pattern" ]] && flags="$flags --test-pattern"
+  local port; port="$(free_port)"
+  local flags="serve -v"
+  [[ "$mode" == test-pattern ]] && flags="$flags --test-pattern"
 
-  cat > "$d/run.env" <<EOF
+  if [[ "$target" == linux ]]; then
+    docker info >/dev/null 2>&1 || die "docker is not reachable (start colima / Docker Desktop)"
+    local arch; arch="$(docker info --format '{{.Architecture}}')"
+    case "$arch" in aarch64|arm64) arch=arm64 ;; x86_64|amd64) arch=amd64 ;; *) die "unsupported docker arch $arch" ;; esac
+    (cd "$repo" && GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -o "$d/spareglass" ./cmd/spareglass) \
+      || die "go build failed (run: sg down $id)"
+    if ! docker image inspect "$BROWSER_IMAGE" >/dev/null 2>&1; then
+      echo "building $BROWSER_IMAGE (first run only)…"
+      docker build -q -t "$BROWSER_IMAGE" -f "$SKILL_DIR/linux/Dockerfile.browser" "$SKILL_DIR/linux" >/dev/null \
+        || die "docker build of $BROWSER_IMAGE failed (run: sg down $id)"
+    fi
+    local cdp; cdp="$(free_port)"
+    printf '{"browser":{"cdpEndpoint":"http://127.0.0.1:%s"}}\n' "$cdp" > "$d/cli.config.json"
+    cat > "$d/run.env" <<EOF
 RUN_ID=$id
+TARGET=linux
+REPO=$repo
+REV=$rev
+FINGERPRINT=$fp
+MODE=$mode
+PORT=$port
+CDP_PORT=$cdp
+URL=http://127.0.0.1:$port
+BROWSER_URL=http://127.0.0.1:7878
+SESSION=sg-$id
+EOF
+    tmux new-session -d -s "sg-$id" -x 200 -y 50 \
+      "docker run --rm -i --name 'sg-$id' -p '127.0.0.1:$port:7878' -p '127.0.0.1:$cdp:9222' -v '$d:/app' debian:bookworm-slim /app/spareglass $flags --addr :7878 2>&1 | tee -i '$d/evidence/host.log'"
+    if ! wait_http "http://127.0.0.1:$port/api/healthz" 120; then
+      cmd_down "$id" >/dev/null 2>&1 || true
+      die "host did not answer /api/healthz within 30s; stopped. See $d/evidence/host.log"
+    fi
+    docker run -d --rm --name "sg-$id-browser" --network "container:sg-$id" "$BROWSER_IMAGE" >/dev/null
+    if ! wait_http "http://127.0.0.1:$cdp/json/version" 120; then
+      cmd_down "$id" >/dev/null 2>&1 || true
+      die "browser container did not expose CDP within 30s; stopped"
+    fi
+  else
+    (cd "$repo" && go build -o "$d/spareglass" ./cmd/spareglass) || die "go build failed (run: sg down $id)"
+    cat > "$d/run.env" <<EOF
+RUN_ID=$id
+TARGET=macos
 REPO=$repo
 REV=$rev
 FINGERPRINT=$fp
 MODE=$mode
 PORT=$port
 URL=http://127.0.0.1:$port
+BROWSER_URL=http://127.0.0.1:$port
 SESSION=sg-$id
 EOF
-  tmux new-session -d -s "sg-$id" -x 200 -y 50 \
-    "HOME='$d/home' '$d/spareglass' $flags 2>&1 | tee -i '$d/evidence/host.log'"
-
-  for _ in $(seq 1 40); do
-    if curl -fsS "http://127.0.0.1:$port/api/healthz" >/dev/null 2>&1; then
-      echo "URL=http://127.0.0.1:$port  mode=$mode  rev=$rev  fingerprint=$fp"
-      echo "evidence: $d/evidence"
-      return 0
+    tmux new-session -d -s "sg-$id" -x 200 -y 50 \
+      "HOME='$d/home' '$d/spareglass' $flags --addr 127.0.0.1:$port 2>&1 | tee -i '$d/evidence/host.log'"
+    if ! wait_http "http://127.0.0.1:$port/api/healthz" 40; then
+      cmd_down "$id" >/dev/null 2>&1 || true
+      die "host did not answer /api/healthz within 10s; stopped. See $d/evidence/host.log"
     fi
-    sleep 0.25
-  done
-  cmd_down "$id" >/dev/null 2>&1 || true
-  die "host did not answer /api/healthz within 10s; stopped. See $d/evidence/host.log"
+  fi
+  echo "URL=http://127.0.0.1:$port  target=$target  mode=$mode  rev=$rev  fingerprint=$fp"
+  echo "evidence: $d/evidence"
 }
 
 cmd_doctor() {
@@ -106,21 +164,31 @@ cmd_doctor() {
   local ok=1
   check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; ok=0; fi; }
   check "tmux session $SESSION alive" "tmux has-session -t '$SESSION' 2>/dev/null"
-  local pid; pid="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -1 || true)"
-  check "port $PORT owned by this run's binary" "[[ -n '$pid' ]] && ps -o command= -p '$pid' | grep -qF '$RUN/spareglass'"
+  if [[ "$TARGET" == linux ]]; then
+    check "host container $SESSION running" "[[ \"\$(docker inspect -f '{{.State.Running}}' '$SESSION' 2>/dev/null)\" == true ]]"
+    check "browser container $SESSION-browser running" "[[ \"\$(docker inspect -f '{{.State.Running}}' '$SESSION-browser' 2>/dev/null)\" == true ]]"
+    check "port $PORT published by $SESSION" "docker port '$SESSION' 7878 | grep -q ':$PORT\$'"
+    check "browser CDP answers on $CDP_PORT" "curl -fsS 'http://127.0.0.1:$CDP_PORT/json/version' >/dev/null"
+    check "host config lives in the run's container" "grep -qF 'Config: /root/.config/spareglass/' '$EV/host.log'"
+  else
+    local pid; pid="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -1 || true)"
+    check "port $PORT owned by this run's binary" "[[ -n '$pid' ]] && ps -o command= -p '$pid' | grep -qF '$RUN/spareglass'"
+    check "host config is isolated in this run" "grep -qF 'Config: $RUN/home/' '$EV/host.log'"
+  fi
   check "/api/healthz answers ok" "curl -fsS '$URL/api/healthz' | grep -q '\"ok\"'"
   check "/1 serves the client page" "curl -fsS '$URL/1' | grep -q 'id=\"connect\"'"
-  check "host config is isolated in this run" "grep -qF 'Config: $RUN/home/' '$EV/host.log'"
   local now; now="$(fingerprint "$REPO")"
   check "binary matches the checkout (fingerprint $FINGERPRINT, now $now)" "[[ '$now' == '$FINGERPRINT' ]]"
-  echo "mode=$MODE url=$URL"
-  echo "paired devices: $(HOME="$RUN/home" "$RUN/spareglass" devices | grep -vc '^No paired' || true)"
+  echo "target=$TARGET mode=$MODE url=$URL"
+  echo "paired devices: $(host_cli devices 2>/dev/null | grep -vc '^No paired' || true)"
   [[ $ok == 1 ]]
 }
 
 cmd_open() {
   load "$1"
-  pw open "$URL/${2:-1}" | sed -n '/### Page/,/### Snapshot/p'
+  local cfg=()
+  [[ "$TARGET" == linux ]] && cfg=(--config="$RUN/cli.config.json")
+  pw open "${cfg[@]}" "$BROWSER_URL/${2:-1}" | sed -n '/### Page/,/### Snapshot/p'
 }
 
 cmd_state() {
@@ -169,10 +237,7 @@ cmd_answer() {
 
 cmd_pw() { load "$1"; shift; pw "$@"; }
 
-cmd_devices() {
-  load "$1"; shift
-  HOME="$RUN/home" "$RUN/spareglass" devices "$@" | tee -a "$EV/devices.txt"
-}
+cmd_devices() { load "$1"; shift; host_cli devices "$@" | tee -a "$EV/devices.txt"; }
 
 cmd_displays() {
   system_profiler SPDisplaysDataType | grep -A2 "spareglass" || echo "no spareglass virtual displays"
@@ -183,22 +248,25 @@ cmd_log() { load "$1"; cat "$EV/host.log"; }
 cmd_down() {
   load "$1"
   pw close >/dev/null 2>&1 || true
+  { echo "# devices at teardown"; host_cli devices; } > "$EV/devices-final.txt" 2>&1 || true
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux send-keys -t "$SESSION" C-c
     for _ in $(seq 1 40); do tmux has-session -t "$SESSION" 2>/dev/null || break; sleep 0.25; done
     tmux kill-session -t "$SESSION" 2>/dev/null || true
   fi
+  if [[ "$TARGET" == linux ]]; then
+    docker rm -f "$SESSION-browser" "$SESSION" >/dev/null 2>&1 || true
+  else
+    { echo "# displays after host stopped"; cmd_displays; } > "$EV/displays-after-down.txt"
+  fi
   if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
     echo "WARN: port $PORT still listening; inspect with: lsof -nP -iTCP:$PORT"
   fi
-  if [[ -x "$RUN/spareglass" ]]; then
-    { echo "# devices at teardown"; HOME="$RUN/home" "$RUN/spareglass" devices; } > "$EV/devices-final.txt" 2>&1 || true
-  fi
-  { echo "# displays after host stopped"; cmd_displays; } > "$EV/displays-after-down.txt"
   rm -rf "$RUN/home" "$RUN/spareglass"
   echo "stopped $RUN_ID; evidence kept in $EV:"
   ls "$EV"
-  cat "$EV/displays-after-down.txt"
+  [[ -f "$EV/displays-after-down.txt" ]] && cat "$EV/displays-after-down.txt"
+  return 0
 }
 
 case "${1:-help}" in
@@ -214,15 +282,16 @@ case "${1:-help}" in
   log) shift; cmd_log "$@" ;;
   down) shift; cmd_down "$@" ;;
   *) cat <<'EOF'
-sg up [--real]                 build the checkout, start an isolated host in tmux, print RUN_ID
+sg up [--real|--linux]         build the checkout, start an isolated host, print RUN_ID
+                               (default: macOS host + test pattern; --linux: Docker host + Linux Chromium)
 sg doctor RUN_ID               read-only health check of that run
-sg open RUN_ID [N]             open http://127.0.0.1:PORT/N (default 1) in this run's headless Chrome
+sg open RUN_ID [N]             open display N (default 1) in this run's headless browser
 sg state RUN_ID [NAME]         print client state JSON; with NAME also save evidence/NAME.json
 sg wait RUN_ID 'PRED' [SEC]    poll until JS predicate over state `s` holds (default 15s)
 sg answer RUN_ID CODE y|n      answer the host's pairing prompt, only if it shows CODE
 sg pw RUN_ID <args...>         raw playwright-cli in this run's session (cwd = evidence dir)
 sg devices RUN_ID [...]        "spareglass devices" against this run's store (appends evidence/devices.txt)
-sg displays                    spareglass virtual displays macOS has right now (machine-wide)
+sg displays                    macOS only: spareglass virtual displays this Mac has right now
 sg log RUN_ID                  print the host log
 sg down RUN_ID                 stop browser + host, delete scratch state, keep evidence
 EOF

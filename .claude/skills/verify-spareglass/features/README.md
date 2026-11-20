@@ -7,6 +7,7 @@ This directory is the maintained source for verifying the user-facing behavior o
 - Started by this run: `$SG up` (or `$SG up --real`) from the checkout under test, and `$SG doctor $ID` passes.
 - The run's device store is empty at start (`doctor` prints `paired devices: 0`).
 - Never drive a host that `sg up` did not start in this run.
+- Targets: macOS (default, `--real` for capture) or Linux in Docker (`--linux`). Pairing and device management work on both. Streaming and display slots need macOS until Linux virtual displays exist.
 
 ## Driving conventions
 
