@@ -12,9 +12,6 @@ import (
 // NewPipeline captures the monitor named displayID (e.g. \\.\DISPLAY3) with
 // ffmpeg's gdigrab over that monitor's desktop rectangle and encodes it with
 // the Media Foundation H.264 encoder.
-//
-// gdigrab is used rather than ddagrab because it needs no Direct3D device,
-// so it also works on machines without a GPU (and on CI runners).
 func NewPipeline(displayID string, fps, bitrateKbps int) (Pipeline, error) {
 	if _, err := FFmpegPath(); err != nil {
 		return nil, err
