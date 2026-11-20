@@ -27,11 +27,7 @@ jobs:
       - run: go test -race ./...
       - run: go build ./cmd/spareglass
 
-  goreleaser-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: goreleaser/goreleaser-action@v6
-        with:
-          version: "~> v2"
-          args: check
+  package:
+    uses: ./.github/workflows/package.yml
+    with:
+      snapshot: true
