@@ -3,12 +3,12 @@ module github.com/naoking158/spareglass
 go 1.27.1
 
 require (
-	github.com/ebitengine/purego v0.11.1
+	github.com/ebitengine/purego v0.11.3
 	github.com/go-macos/virtualdisplay v0.5.0
 	github.com/pion/rtcp v1.2.20
 	github.com/pion/webrtc/v4 v4.2.26
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	golang.org/x/sys v0.41.0
+	golang.org/x/sys v0.50.0
 )
 
 require (
