@@ -49,8 +49,8 @@ type Provider interface {
 	// Available reports whether Open can work on this machine.
 	Available() error
 	Open(Spec) (Display, error)
-	// CloseAll removes every display this process created, and on Windows
-	// also detaches driver monitors left attached by an earlier run.
+	// CloseAll removes every display this process created, and any leftover
+	// that the platform can identify as spareglass's.
 	CloseAll() error
 }
 

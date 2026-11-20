@@ -68,6 +68,7 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 	}
 	if !windisplay.HasMode(dev, s.Width, s.Height) {
 		if dev, err = addVDDMode(s.Width, s.Height, int(s.RefreshHz)); err != nil {
+			_ = detachVDDMonitors()
 			return nil, err
 		}
 	}
@@ -101,12 +102,18 @@ func attach(dev string, s Spec) error {
 	return nil
 }
 
-// CloseAll detaches every Virtual Display Driver monitor, including the one
-// the driver attaches by itself after installation or a reload.
+// CloseAll detaches every Virtual Display Driver monitor, including ones left
+// attached by an earlier run or by the driver itself.
 func (p *vddProvider) CloseAll() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.open = nil
+	return detachVDDMonitors()
+}
+
+// detachVDDMonitors detaches every attached Virtual Display Driver monitor;
+// the driver attaches one by itself after installation and every reload.
+func detachVDDMonitors() error {
 	list, err := windisplay.List()
 	if err != nil {
 		return err
