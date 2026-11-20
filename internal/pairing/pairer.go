@@ -77,18 +77,28 @@ func NewPairer(ctx context.Context, store *Store, approver Approver) *Pairer {
 // Store returns the device store.
 func (p *Pairer) Store() *Store { return p.store }
 
-// Start creates a pairing request.
+// Start creates a pairing request. An address with a request still waiting
+// gets that request back, so one device cannot fill the queue.
 func (p *Pairer) Start(name, addr string, slot int) (*Request, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.gcLocked()
+	for _, r := range p.reqs {
+		if r.Addr == addr && r.state == StatePending && time.Since(r.Created) <= RequestTTL {
+			return r, nil
+		}
+	}
 	if p.pending >= maxPending {
 		return nil, ErrTooManyRequests
 	}
 	r := &Request{ID: randomHex(8), Code: fourDigits(), Name: name, Addr: addr, Slot: slot, Created: time.Now(), state: StatePending}
+	select {
+	case p.queue <- r:
+	default:
+		return nil, ErrTooManyRequests
+	}
 	p.reqs[r.ID] = r
 	p.pending++
-	p.queue <- r
 	return r, nil
 }
 
@@ -125,15 +135,7 @@ func (p *Pairer) run(ctx context.Context) {
 			cancel()
 			switch {
 			case ok:
-				id, secret, err := p.store.Add(r.Name)
-				if err != nil {
-					p.finish(r, StateDenied)
-					continue
-				}
-				p.mu.Lock()
-				r.deviceID, r.secret = id, secret
-				p.finishLocked(r, StateApproved)
-				p.mu.Unlock()
+				p.approve(r)
 			case expired:
 				p.finish(r, StateExpired)
 			default:
@@ -143,6 +145,23 @@ func (p *Pairer) run(ctx context.Context) {
 	}
 }
 
+// approve stores the device unless the request already ended (for example
+// it expired while the owner was typing).
+func (p *Pairer) approve(r *Request) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if r.state != StatePending {
+		return
+	}
+	id, secret, err := p.store.Add(r.Name)
+	if err != nil {
+		p.finishLocked(r, StateDenied)
+		return
+	}
+	r.deviceID, r.secret = id, secret
+	p.finishLocked(r, StateApproved)
+}
+
 func (p *Pairer) finish(r *Request, st State) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -150,9 +169,10 @@ func (p *Pairer) finish(r *Request, st State) {
 }
 
 func (p *Pairer) finishLocked(r *Request, st State) {
-	if r.state == StatePending {
-		p.pending--
+	if r.state != StatePending {
+		return
 	}
+	p.pending--
 	r.state = st
 }
 
