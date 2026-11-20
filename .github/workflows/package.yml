@@ -1,0 +1,63 @@
+name: package
+
+# Builds the release archives. release.yml calls it with snapshot: false on
+# v* tags (publishes the GitHub Release); ci.yml calls it with snapshot: true
+# so every change exercises the same path and uploads the archives as an artifact.
+on:
+  workflow_call:
+    inputs:
+      snapshot:
+        type: boolean
+        required: true
+
+# Token permissions come from the caller (read in CI, write for releases).
+jobs:
+  ffmpeg-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/macos
+          key: ffmpeg-macos-${{ hashFiles('packaging/macos/build-ffmpeg.sh') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: packaging/macos/build-ffmpeg.sh third_party/macos
+      - run: |
+          lipo -info third_party/macos/ffmpeg
+          third_party/macos/ffmpeg -hide_banner -encoders | grep h264_videotoolbox
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-macos
+          path: third_party/macos
+          retention-days: 1
+
+  goreleaser:
+    needs: ffmpeg-macos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-macos
+          path: third_party/macos
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean ${{ inputs.snapshot && '--snapshot' || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - if: inputs.snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-archives
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/checksums.txt
+          retention-days: 7

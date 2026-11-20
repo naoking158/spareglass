@@ -1,10 +1,9 @@
-# GoReleaser v2 — builds the binaries attached to each GitHub Release.
-# Triggered by .github/workflows/release.yml when a v* tag is pushed.
+# GoReleaser v2 — builds the archives attached to each GitHub Release.
+# Run by .github/workflows/package.yml (release on v* tags, snapshot in CI).
 #
-# Everything is pure Go today (CGO_ENABLED=0), so one Linux runner can
-# cross-compile all targets. Once capture/encode needs cgo
-# (ScreenCaptureKit, VideoToolbox, Media Foundation, PipeWire), switch to
-# building on native runners per OS — see docs/design.md "Release".
+# Archives are named for people, not toolchains: one universal "mac" zip and
+# "windows_x64" / "windows_arm64" zips. The mac zip ships an LGPL ffmpeg that
+# packaging/macos/build-ffmpeg.sh builds into third_party/macos/ beforehand.
 version: 2
 
 project_name: spareglass
@@ -14,25 +13,57 @@ before:
     - go mod tidy
 
 builds:
-  - id: spareglass
+  - id: mac
     main: ./cmd/spareglass
     binary: spareglass
-    env:
+    env: &env
       - CGO_ENABLED=0
-    goos: [darwin, windows, linux]
+    goos: [darwin]
     goarch: [amd64, arm64]
-    flags:
+    flags: &flags
       - -trimpath
-    ldflags:
+    ldflags: &ldflags
       - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
 
+  - id: other
+    main: ./cmd/spareglass
+    binary: spareglass
+    env: *env
+    goos: [windows, linux]
+    goarch: [amd64, arm64]
+    flags: *flags
+    ldflags: *ldflags
+
+universal_binaries:
+  - id: mac
+    ids: [mac]
+    replace: true
+
 archives:
-  - id: default
+  - id: mac
+    ids: [mac]
+    formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_mac"
+    wrap_in_directory: true
+    files:
+      - README.md
+      - LICENSE
+      - src: third_party/macos/ffmpeg
+        strip_parent: true
+        info:
+          mode: 0755
+      - src: third_party/macos/ffmpeg-LICENSE.md
+        strip_parent: true
+
+  - id: other
+    ids: [other]
     formats: [tar.gz]
     format_overrides:
       - goos: windows
         formats: [zip]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ if eq .Arch "amd64" }}x64{{ else }}{{ .Arch }}{{ end }}
+    wrap_in_directory: true
     files:
       - README.md
       - LICENSE
