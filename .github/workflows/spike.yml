@@ -68,11 +68,13 @@ jobs:
         run: |
           go test -c -o spike.exe ./internal/vdisplay
           Get-Content C:\VirtualDisplayDriver\vdd_settings.xml | Select-String -Pattern "refresh|width|height|gpu|friendly|count" | Select-Object -First 60
-          function run($label) { "===== $label"; $env:SPIKE_SIZES = "1088x486,1088x486,1920x1080,1180x820"; .\spike.exe -test.v -test.run TestSpikeOpen 2>&1 }
-          run "extend-default"
+          function run($label, $sizes) { "===== $label"; $env:SPIKE_SIZES = $sizes; & .\spike.exe "-test.v" "-test.run=TestSpikeOpen" 2>&1 }
+          $base = "1088x486,1088x486,1920x1080,1180x820"
+          run "extend-default" $base
+          run "fill-8" "1000x500,1010x500,1020x500,1030x500,1040x500,1050x500,1060x500,1070x500,1088x486,1000x500"
           foreach ($mode in "clone","internal","external","extend") {
             "##### DisplaySwitch /$mode"
             Start-Process DisplaySwitch.exe -ArgumentList "/$mode" -Wait
             Start-Sleep -Seconds 6
-            run $mode
+            run $mode $base
           }
