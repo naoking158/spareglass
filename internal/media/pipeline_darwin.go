@@ -49,7 +49,6 @@ func NewPipeline(displayID string, fps, bitrateKbps int) (Pipeline, error) {
 		"-b:v", kbps, "-maxrate", kbps, "-bufsize", kbps,
 		"-g", strconv.Itoa(fps), "-bf", "0",
 		"-bsf:v", "dump_extra=freq=keyframe", // SPS/PPS before every IDR
-		"-flags", "low_delay",
 		"-f", "h264", "pipe:1",
 	)
 	return NewFFmpegPipeline(args, fps)
