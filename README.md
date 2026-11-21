@@ -4,14 +4,14 @@ Use any device with a web browser — a tablet, an old laptop, a phone — as an
 **extended display** for your Mac, Windows or Linux computer. No app to
 install on the display device: open a link, tap Connect.
 
-> **Status: early prototype.** Works end to end on macOS 14+ (virtual display
-> → ffmpeg capture with VideoToolbox → WebRTC → browser). Windows and Linux
-> are not done yet. See [docs/design.md](docs/design.md).
+> **Status: early prototype.** Works end to end on macOS 14+ and Windows 10 /
+> 11 (x64): virtual display → ffmpeg capture and H.264 encode → WebRTC →
+> browser. Linux is not done yet. See [docs/design.md](docs/design.md).
 
 | | macOS | Windows | Linux |
 |---|---|---|---|
-| Virtual display | ✅ CGVirtualDisplay | 🚧 planned (IddCx) | 🚧 planned (portal / Mutter) |
-| Capture + encode | ✅ ffmpeg (avfoundation + VideoToolbox) | 🚧 | 🚧 |
+| Virtual display | ✅ CGVirtualDisplay | ✅ [Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) (one display at a time) | 🚧 planned (portal / Mutter) |
+| Capture + encode | ✅ ffmpeg (avfoundation + VideoToolbox) | ✅ ffmpeg (gdigrab + Media Foundation) | 🚧 |
 | Browser client | ✅ | ✅ | ✅ |
 
 ## How it works
@@ -35,21 +35,32 @@ host (this computer)                           display device
    one, so you can drag windows onto it.
 5. The monitor is captured, encoded and streamed to the browser over WebRTC.
 
-## Requirements (macOS)
-
-- macOS 14 or later
-- ffmpeg: `brew install ffmpeg`
-- Screen Recording permission for the app you run spareglass from
-  (System Settings → Privacy & Security → Screen & System Audio Recording)
-
 ## Install
 
-Download the archive for your OS from
+Download the archive for your computer from
 [Releases](https://github.com/naoking158/spareglass/releases), extract it and
-run the binary.
+follow `HOW-TO-USE.txt` inside the folder (Japanese).
 
-macOS: binaries are not notarized yet. If macOS blocks it, run
-`xattr -d com.apple.quarantine ./spareglass` once.
+### macOS
+
+- macOS 14 or later. `spareglass_<version>_mac.zip` is a universal binary
+  with ffmpeg bundled.
+- Start it with `Start spareglass.command`. The binaries are not notarized
+  yet: if macOS blocks them, allow them in System Settings → Privacy &
+  Security, or run `xattr -d com.apple.quarantine ./spareglass` once.
+- Give Screen Recording permission to the app you run spareglass from
+  (System Settings → Privacy & Security → Screen & System Audio Recording).
+
+### Windows
+
+- Windows 10 / 11, 64-bit. `spareglass_<version>_windows_x64.zip` bundles
+  ffmpeg and the Virtual Display Driver installer.
+- Run `VirtualDisplayDriver-setup.exe` once (needs administrator approval),
+  then start `spareglass.exe`. spareglass itself runs as a standard user.
+- When the firewall asks, allow access on private networks; otherwise the
+  display device cannot connect.
+
+spareglass looks for ffmpeg next to its own binary first, then on `PATH`.
 
 ## Usage
 
@@ -59,9 +70,11 @@ spareglass doctor     # show what works on this machine
 spareglass serve --test-pattern   # stream a test pattern (checks the browser side)
 spareglass config init   # write a config file with the defaults
 spareglass config path   # where that file lives
+spareglass config show   # print the effective config
 spareglass devices        # browsers allowed to connect
 spareglass devices revoke ID
 spareglass devices clear
+spareglass version
 ```
 
 Then type the printed URL on the other device (e.g. `http://192.168.1.20/1`),
@@ -90,16 +103,18 @@ encrypted with DTLS-SRTP. Run spareglass only on networks you trust.
 
 ## Development
 
-Requires Go 1.27+.
+Requires Go 1.27+. Running from source on macOS needs ffmpeg on `PATH`
+(`brew install ffmpeg`).
 
 ```sh
-make run      # start the host with verbose logs
-make test     # unit tests, including a full WebRTC negotiation
+make run       # start the host with verbose logs
+make test      # unit tests, including a full WebRTC negotiation
 make doctor
+make snapshot  # build the release archives into dist/ (needs goreleaser, macOS, mingw-w64, gh)
 ```
 
-Releases: push a `v*` tag; GitHub Actions runs GoReleaser and attaches the
-binaries to the release.
+Releases: push a `v*` tag; GitHub Actions builds the bundled ffmpeg, runs
+GoReleaser and attaches the archives to the release.
 
 ## License
 
