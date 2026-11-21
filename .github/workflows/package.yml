@@ -168,25 +168,6 @@ jobs:
           Start-Sleep -Seconds 10
           "--- install log (last lines)"; Get-Content "$env:RUNNER_TEMP\vdd-install.log" -ErrorAction SilentlyContinue | Select-Object -Last 12
           "--- settings file"; Test-Path C:\VirtualDisplayDriver\vdd_settings.xml
-      - name: Virtual display tests (create, stream, resize, detach, WebRTC)
-        shell: bash
-        env:
-          SPAREGLASS_VDD_TEST: "1"
-        run: |
-          set -euo pipefail
-          mkdir -p vdd-frames
-          export SPAREGLASS_VDD_FRAMES="$PWD/vdd-frames"
-          dir=$(mktemp -d)
-          cp third_party/windows/ffmpeg.exe "$dir/"
-          go test -c -o "$dir/vdisplay.test.exe" ./internal/vdisplay
-          go test -c -o "$dir/server.test.exe" ./internal/server
-          cd "$dir"
-          ./vdisplay.test.exe -test.v -test.run VDD | tee test.log
-          ./server.test.exe -test.v -test.run TestStreamsVirtualDisplay | tee -a test.log
-          grep -q -- "--- PASS: TestVDDDisplayStreams" test.log
-          grep -q -- "--- PASS: TestStreamsVirtualDisplay" test.log
-          echo "resolutions added by spareglass: $(grep -c -- '<!-- spareglass -->' /c/VirtualDisplayDriver/vdd_settings.xml)"
-          grep -q -- '<!-- spareglass -->' /c/VirtualDisplayDriver/vdd_settings.xml
       - name: Virtual display as a standard (non-admin) user
         shell: pwsh
         run: |
@@ -219,6 +200,26 @@ jobs:
           if ($out -notmatch "settings: writable") { exit 1 }
           if ($out -notmatch "pipe: connected") { exit 1 }
           if ($out -notmatch "--- PASS: TestVDDDisplayStreams") { exit 1 }
+          if ((Get-Content -Raw C:\VirtualDisplayDriver\vdd_settings.xml) -notmatch "<!-- spareglass -->") { "the standard user did not add a resolution"; exit 1 }
+      - name: Virtual display tests (create, stream, resize, detach, WebRTC)
+        shell: bash
+        env:
+          SPAREGLASS_VDD_TEST: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p vdd-frames
+          export SPAREGLASS_VDD_FRAMES="$PWD/vdd-frames"
+          dir=$(mktemp -d)
+          cp third_party/windows/ffmpeg.exe "$dir/"
+          go test -c -o "$dir/vdisplay.test.exe" ./internal/vdisplay
+          go test -c -o "$dir/server.test.exe" ./internal/server
+          cd "$dir"
+          ./vdisplay.test.exe -test.v -test.run VDD | tee test.log
+          ./server.test.exe -test.v -test.run TestStreamsVirtualDisplay | tee -a test.log
+          grep -q -- "--- PASS: TestVDDDisplayStreams" test.log
+          grep -q -- "--- PASS: TestStreamsVirtualDisplay" test.log
+          echo "resolutions added by spareglass: $(grep -c -- '<!-- spareglass -->' /c/VirtualDisplayDriver/vdd_settings.xml)"
+          grep -q -- '<!-- spareglass -->' /c/VirtualDisplayDriver/vdd_settings.xml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
