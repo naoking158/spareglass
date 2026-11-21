@@ -203,12 +203,13 @@ jobs:
             Start-Sleep -Milliseconds 500
           }
           $listening = Test-Port
+          $exited = $p.HasExited
           $after = [System.Windows.Forms.SystemInformation]::MonitorCount
           Start-Sleep -Seconds 10
           $later = [System.Windows.Forms.SystemInformation]::MonitorCount
           Save-Screen (Join-Path $frames "first-run.png")
           Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-          "listening: $listening  serve exited early: $($p.HasExited)  monitors when listening: $after  10 s later: $later"
+          "listening: $listening  serve exited before listening: $exited  monitors when listening: $after  10 s later: $later"
           $log = Join-Path ([IO.Path]::GetTempPath()) "spareglass-driver-setup.log"
           "--- setup log: installed files and run entries"; Select-String -Path $log -Pattern "Dest filename:|Filename:|Parameters:" | ForEach-Object Line
           if (-not $listening) { "serve did not start listening"; exit 1 }
