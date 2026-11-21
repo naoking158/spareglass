@@ -15,6 +15,7 @@ const STORAGE_KEY = "spareglass.device";
 
 let pc = null;
 let control = null;
+let statsTimer = 0;
 
 $("title").textContent = `Use this screen as display ${slot}`;
 document.title = `spareglass · display ${slot}`;
@@ -133,6 +134,75 @@ function waitForIce(peer, timeoutMs = 3000) {
   });
 }
 
+// Stream stats: every STATS_INTERVAL_MS the client reports per-frame delays
+// to the host, which logs them next to what it sent (serve -v).
+const STATS_INTERVAL_MS = 5000;
+const presented = { count: 0, receiveToPresent: 0 };
+
+function watchFrames() {
+  if (!("requestVideoFrameCallback" in video)) return;
+  const onFrame = (_now, meta) => {
+    if (meta.receiveTime > 0) {
+      presented.count++;
+      presented.receiveToPresent += meta.presentationTime - meta.receiveTime;
+    }
+    video.requestVideoFrameCallback(onFrame);
+  };
+  video.requestVideoFrameCallback(onFrame);
+}
+
+async function readStats(peer) {
+  const out = { at: performance.now(), rtt: 0 };
+  (await peer.getStats()).forEach((r) => {
+    if (r.type === "inbound-rtp" && r.kind === "video") out.video = r;
+    if (r.type === "candidate-pair" && r.nominated && r.state === "succeeded") out.rtt = (r.currentRoundTripTime || 0) * 1000;
+  });
+  return out;
+}
+
+function diffStats(prev, cur) {
+  const a = prev.video || {};
+  const b = cur.video || {};
+  const d = (k) => (b[k] || 0) - (a[k] || 0);
+  const perFrame = (total, count) => (count > 0 ? (total * 1000) / count : 0);
+  const decoded = d("framesDecoded");
+  const ms = cur.at - prev.at;
+  return {
+    type: "stats",
+    interval_ms: Math.round(ms),
+    fps: ms > 0 ? (decoded * 1000) / ms : 0,
+    jitter_buffer_ms: perFrame(d("jitterBufferDelay"), d("jitterBufferEmittedCount")),
+    decode_ms: perFrame(d("totalDecodeTime"), decoded),
+    processing_ms: perFrame(d("totalProcessingDelay"), decoded),
+    receive_to_present_ms: presented.count > 0 ? presented.receiveToPresent / presented.count : 0,
+    rtt_ms: cur.rtt,
+    kbps: ms > 0 ? (d("bytesReceived") * 8) / ms : 0,
+    frames_dropped: d("framesDropped"),
+    freezes: d("freezeCount"),
+    packets_lost: d("packetsLost"),
+    keyframes: d("keyFramesDecoded"),
+  };
+}
+
+function startStats(peer, channel) {
+  stopStats();
+  let prev = null;
+  const tick = async () => {
+    const cur = await readStats(peer);
+    if (prev && channel.readyState === "open") channel.send(JSON.stringify(diffStats(prev, cur)));
+    presented.count = 0;
+    presented.receiveToPresent = 0;
+    prev = cur;
+  };
+  tick().catch(() => {});
+  statsTimer = setInterval(() => tick().catch(() => {}), STATS_INTERVAL_MS);
+}
+
+function stopStats() {
+  clearInterval(statsTimer);
+  statsTimer = 0;
+}
+
 class NotPaired extends Error {}
 
 async function startSession() {
@@ -151,7 +221,10 @@ async function startSession() {
   };
 
   control = pc.createDataChannel("control");
-  control.onopen = () => control.send(JSON.stringify(screenInfo("hello")));
+  control.onopen = () => {
+    control.send(JSON.stringify(screenInfo("hello")));
+    startStats(pc, control);
+  };
   control.onmessage = (ev) => handleStatus(JSON.parse(ev.data));
 
   const offer = await pc.createOffer();
@@ -223,6 +296,7 @@ function handleStatus(msg) {
 }
 
 function closePeer() {
+  stopStats();
   if (pc) pc.close();
   pc = null;
   control = null;
@@ -252,3 +326,4 @@ button.addEventListener("click", () => {
   connect().catch((err) => disconnect(err.message || String(err), true));
 });
 window.addEventListener("resize", onResize);
+watchFrames();
