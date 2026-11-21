@@ -47,15 +47,23 @@ func bundledFFmpeg(dir string) (string, bool) {
 	return p, true
 }
 
-// FFmpegHasEncoder reports whether ffmpeg lists the named encoder.
+// FFmpegHasEncoder reports whether ffmpeg lists the named encoder. ffmpeg is
+// asked once per process.
 func FFmpegHasEncoder(name string) bool {
+	return bytes.Contains(ffmpegEncoders(), []byte(" "+name+" "))
+}
+
+var ffmpegEncoders = sync.OnceValue(func() []byte {
 	p, err := FFmpegPath()
 	if err != nil {
-		return false
+		return nil
 	}
 	out, err := exec.Command(p, "-hide_banner", "-encoders").Output()
-	return err == nil && bytes.Contains(out, []byte(" "+name+" "))
-}
+	if err != nil {
+		return nil
+	}
+	return out
+})
 
 // ffmpegPipeline runs ffmpeg writing raw H.264 (Annex-B) to stdout.
 // It is the first, simplest pipeline: capture and hardware encoding are
