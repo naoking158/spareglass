@@ -73,7 +73,12 @@ func (m *Manager) Create(ctx context.Context, offer string, slot int, device str
 	id := newID()
 	s := &Session{id: id, slot: slot, m: m, log: m.log.With("session", id, "display", slot+1, "device", device)}
 
-	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{}) // LAN only: no STUN/TURN
+	api, err := newAPI()
+	if err != nil {
+		m.freeSlot(slot)
+		return "", "", err
+	}
+	pc, err := api.NewPeerConnection(webrtc.Configuration{}) // LAN only: no STUN/TURN
 	if err != nil {
 		m.freeSlot(slot)
 		return "", "", err
@@ -129,6 +134,11 @@ func (m *Manager) Create(ctx context.Context, offer string, slot int, device str
 	gathered := webrtc.GatheringCompletePromise(pc)
 	if err := pc.SetLocalDescription(answer); err != nil {
 		return fail(err)
+	}
+	for _, e := range sender.GetParameters().HeaderExtensions {
+		if e.URI == playoutDelayURI {
+			s.video.setPlayoutDelayID(uint8(e.ID))
+		}
 	}
 	select {
 	case <-gathered:
