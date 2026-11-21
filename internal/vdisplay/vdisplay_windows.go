@@ -91,13 +91,18 @@ func attach(dev string, s Spec) error {
 		return err
 	}
 	if err := setMode(dev, s, x); err != nil {
-		before, _ := windisplay.Find(dev)
+		before := "unknown"
+		if m, ferr := windisplay.Find(dev); ferr == nil {
+			before = describe(m)
+		}
 		aerr := windisplay.Activate(dev)
 		if aerr == nil {
-			aerr = setMode(dev, s, x)
+			if aerr = setMode(dev, s, x); aerr != nil {
+				aerr = errors.Join(aerr, windisplay.Detach(dev))
+			}
 		}
 		if aerr != nil {
-			return fmt.Errorf("%w; then %w (monitor before: %s)", err, aerr, describe(before))
+			return fmt.Errorf("%w; then %w (monitor before: %s)", err, aerr, before)
 		}
 		slog.Info("virtual display attached through SetDisplayConfig", "device", dev, "legacy_err", err)
 	}
@@ -143,10 +148,11 @@ func detachVDDMonitors() error {
 	}
 	var errs []error
 	for _, m := range list {
-		if m.Description == vddAdapter {
-			slog.Info("Virtual Display Driver monitor", "state", describe(m))
+		if m.Description != vddAdapter {
+			continue
 		}
-		if m.Description == vddAdapter && m.Attached {
+		slog.Info("Virtual Display Driver monitor", "state", describe(m))
+		if m.Attached {
 			errs = append(errs, windisplay.Detach(m.Device))
 		}
 	}
