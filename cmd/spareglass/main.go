@@ -107,6 +107,7 @@ func runServe(args []string) error {
 		level = slog.LevelDebug
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	slog.SetDefault(log)
 
 	devicesPath, err := config.DevicesPath()
 	if err != nil {

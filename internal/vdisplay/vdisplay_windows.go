@@ -5,6 +5,7 @@ package vdisplay
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -89,10 +90,21 @@ func attach(dev string, s Spec) error {
 	if err != nil {
 		return err
 	}
-	if err := windisplay.SetMode(dev, s.Width, s.Height, int(s.RefreshHz), x, 0); err != nil {
-		if err := windisplay.SetMode(dev, s.Width, s.Height, 0, x, 0); err != nil {
-			return err
+	if err := setMode(dev, s, x); err != nil {
+		before := "unknown"
+		if m, ferr := windisplay.Find(dev); ferr == nil {
+			before = describe(m)
 		}
+		aerr := windisplay.Activate(dev)
+		if aerr == nil {
+			if aerr = setMode(dev, s, x); aerr != nil {
+				aerr = errors.Join(aerr, windisplay.Detach(dev))
+			}
+		}
+		if aerr != nil {
+			return fmt.Errorf("%w; then %w (monitor before: %s)", err, aerr, before)
+		}
+		slog.Info("virtual display attached through SetDisplayConfig", "device", dev, "legacy_err", err)
 	}
 	m, err := windisplay.Find(dev)
 	if err != nil {
@@ -102,6 +114,20 @@ func attach(dev string, s Spec) error {
 		return fmt.Errorf("Windows set %s to %dx%d instead of %dx%d", dev, m.Width, m.Height, s.Width, s.Height)
 	}
 	return nil
+}
+
+func setMode(dev string, s Spec, x int) error {
+	if err := windisplay.SetMode(dev, s.Width, s.Height, int(s.RefreshHz), x, 0); err != nil {
+		return windisplay.SetMode(dev, s.Width, s.Height, 0, x, 0)
+	}
+	return nil
+}
+
+func describe(m windisplay.Monitor) string {
+	if !m.Attached {
+		return m.Device + " detached"
+	}
+	return fmt.Sprintf("%s %dx%d at %d,%d", m.Device, m.Width, m.Height, m.X, m.Y)
 }
 
 // CloseAll detaches every Virtual Display Driver monitor, including ones left
@@ -122,7 +148,11 @@ func detachVDDMonitors() error {
 	}
 	var errs []error
 	for _, m := range list {
-		if m.Description == vddAdapter && m.Attached {
+		if m.Description != vddAdapter {
+			continue
+		}
+		slog.Info("Virtual Display Driver monitor", "state", describe(m))
+		if m.Attached {
 			errs = append(errs, windisplay.Detach(m.Device))
 		}
 	}

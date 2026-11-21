@@ -179,13 +179,24 @@ func change(device string, dm *devMode) error {
 	}
 	r, _, _ := procChangeDisplaySettingsExW.Call(uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(dm)), 0, cdsUpdateRegistry|cdsNoReset, 0)
 	if int32(r) != 0 {
-		return fmt.Errorf("ChangeDisplaySettingsEx(%s): code %d", device, int32(r))
+		return fmt.Errorf("ChangeDisplaySettingsEx(%s, %dx%d at %d,%d): %s", device, dm.pelsWidth, dm.pelsHeight, dm.positionX, dm.positionY, dispChange(int32(r)))
 	}
 	r, _, _ = procChangeDisplaySettingsExW.Call(0, 0, 0, 0, 0)
 	if int32(r) != 0 {
-		return fmt.Errorf("ChangeDisplaySettingsEx(apply): code %d", int32(r))
+		return fmt.Errorf("ChangeDisplaySettingsEx(apply): %s", dispChange(int32(r)))
 	}
 	return nil
+}
+
+func dispChange(code int32) string {
+	names := map[int32]string{
+		1: "DISP_CHANGE_RESTART", -1: "DISP_CHANGE_FAILED", -2: "DISP_CHANGE_BADMODE", -3: "DISP_CHANGE_NOTUPDATED",
+		-4: "DISP_CHANGE_BADFLAGS", -5: "DISP_CHANGE_BADPARAM", -6: "DISP_CHANGE_BADDUALVIEW",
+	}
+	if n, ok := names[code]; ok {
+		return fmt.Sprintf("%s (%d)", n, code)
+	}
+	return fmt.Sprintf("code %d", code)
 }
 
 func currentMode(device string) (devMode, bool) {

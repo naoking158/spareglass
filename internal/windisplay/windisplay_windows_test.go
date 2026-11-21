@@ -14,6 +14,15 @@ func TestStructSizesMatchWin32(t *testing.T) {
 	if got := unsafe.Sizeof(displayDevice{}); got != 840 {
 		t.Errorf("sizeof(DISPLAY_DEVICEW) = %d, want 840", got)
 	}
+	if got := unsafe.Sizeof(pathInfo{}); got != 72 {
+		t.Errorf("sizeof(DISPLAYCONFIG_PATH_INFO) = %d, want 72", got)
+	}
+	if got := unsafe.Sizeof(modeInfo{}); got != 64 {
+		t.Errorf("sizeof(DISPLAYCONFIG_MODE_INFO) = %d, want 64", got)
+	}
+	if got := unsafe.Sizeof(sourceDeviceName{}); got != 84 {
+		t.Errorf("sizeof(DISPLAYCONFIG_SOURCE_DEVICE_NAME) = %d, want 84", got)
+	}
 }
 
 func TestListFindsThePrimaryMonitor(t *testing.T) {
