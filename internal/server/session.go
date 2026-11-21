@@ -92,7 +92,7 @@ func (m *Manager) Create(ctx context.Context, offer string, slot int, device str
 	// Constrained Baseline is what every browser decodes in hardware.
 	s.track, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{
 		MimeType:    webrtc.MimeTypeH264,
-		ClockRate:   90000,
+		ClockRate:   videoClockRate,
 		SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
 	}, "video", "spareglass")
 	if err != nil {

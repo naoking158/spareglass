@@ -23,8 +23,10 @@ const (
 type frameWriter struct {
 	track *webrtc.TrackLocalStaticRTP
 
-	mu  sync.Mutex
-	pkt rtp.Packetizer
+	mu      sync.Mutex
+	pkt     rtp.Packetizer
+	elapsed time.Duration
+	ticks   uint64
 }
 
 func newFrameWriter(track *webrtc.TrackLocalStaticRTP) *frameWriter {
@@ -37,7 +39,11 @@ func newFrameWriter(track *webrtc.TrackLocalStaticRTP) *frameWriter {
 func (w *frameWriter) write(f media.EncodedFrame) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.pkt.SkipSamples(uint32(f.Duration * videoClockRate / time.Second))
+	// Ticks come from the total elapsed time, so rounding does not drift.
+	w.elapsed += f.Duration
+	ticks := uint64(w.elapsed/time.Second)*videoClockRate + uint64(w.elapsed%time.Second)*videoClockRate/uint64(time.Second)
+	w.pkt.SkipSamples(uint32(ticks - w.ticks))
+	w.ticks = ticks
 	for _, p := range w.pkt.Packetize(f.Data, 0) {
 		if err := w.track.WriteRTP(p); err != nil {
 			return err

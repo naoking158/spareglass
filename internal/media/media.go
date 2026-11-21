@@ -38,7 +38,9 @@ type Capture interface {
 
 // EncodedFrame is one H.264 access unit in Annex-B format.
 type EncodedFrame struct {
-	Data     []byte
+	Data []byte
+	// Duration is the time since the previous frame (not until the next one,
+	// unlike Pion's media.Sample).
 	Duration time.Duration
 	Keyframe bool
 }

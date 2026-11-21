@@ -375,15 +375,20 @@ func TestRTPTimestampsFollowFrameTimes(t *testing.T) {
 		return &timedPipeline{durations: durations, stop: make(chan struct{})}, nil
 	}
 	_, pkts := receiveVideo(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, factory, 640, 480, 20, 15*time.Second)
+	compared := 0
 	for i := 1; i < len(pkts); i++ {
 		prev, cur := pkts[i-1], pkts[i]
 		if byte(cur.Payload[1]) != byte(prev.Payload[1])+1 {
 			continue
 		}
-		want := uint32(durations[int(cur.Payload[1])%len(durations)] * 90000 / time.Second)
+		compared++
+		want := uint32(durations[int(cur.Payload[1])%len(durations)] * videoClockRate / time.Second)
 		if got := cur.Timestamp - prev.Timestamp; got != want {
 			t.Fatalf("frame %d: timestamp advanced %d ticks, want %d (its own Duration)", cur.Payload[1], got, want)
 		}
+	}
+	if compared < 5 {
+		t.Fatalf("only %d consecutive frames received", compared)
 	}
 }
 
