@@ -102,6 +102,21 @@ jobs:
           ! grep -q -- "--- SKIP" test.log
           grep -q -- "--- PASS: TestPipelineCapturesPrimaryMonitor" test.log
           grep -q -- "--- PASS: TestStreamsVideo" test.log
+      - name: A second host refuses to start
+        shell: bash
+        run: |
+          set -euo pipefail
+          go build -o spareglass.exe ./cmd/spareglass
+          ./spareglass.exe serve -addr 127.0.0.1:0 </dev/null >first.log 2>&1 &
+          first=$!
+          for _ in $(seq 50); do grep -q "spareglass is running" first.log && break; sleep 0.2; done
+          grep -q "spareglass is running" first.log
+          if ./spareglass.exe serve -addr 127.0.0.1:0 </dev/null >second.log 2>&1; then
+            echo "second host started"; cat second.log; exit 1
+          fi
+          cat second.log
+          grep -q "already running" second.log
+          kill "$first"
 
   windows-vdd:
     permissions:
