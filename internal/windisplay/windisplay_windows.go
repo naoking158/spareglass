@@ -130,22 +130,36 @@ func Find(device string) (Monitor, error) {
 	return Monitor{}, fmt.Errorf("display %s not found", device)
 }
 
-// HasMode reports whether the device offers width×height at any refresh rate.
-func HasMode(device string, width, height int) bool {
+// Modes returns the distinct sizes the device offers.
+func Modes(device string) [][2]int {
 	name, err := windows.UTF16PtrFromString(device)
 	if err != nil {
-		return false
+		return nil
 	}
+	seen := map[[2]int]bool{}
+	var out [][2]int
 	for i := uint32(0); ; i++ {
 		var dm devMode
 		dm.size = uint16(unsafe.Sizeof(dm))
 		if r, _, _ := procEnumDisplaySettingsW.Call(uintptr(unsafe.Pointer(name)), uintptr(i), uintptr(unsafe.Pointer(&dm))); r == 0 {
-			return false
+			return out
 		}
-		if int(dm.pelsWidth) == width && int(dm.pelsHeight) == height {
+		m := [2]int{int(dm.pelsWidth), int(dm.pelsHeight)}
+		if !seen[m] {
+			seen[m] = true
+			out = append(out, m)
+		}
+	}
+}
+
+// HasMode reports whether the device offers width×height at any refresh rate.
+func HasMode(device string, width, height int) bool {
+	for _, m := range Modes(device) {
+		if m == [2]int{width, height} {
 			return true
 		}
 	}
+	return false
 }
 
 // SetMode attaches the device to the desktop at (x, y) with the given size

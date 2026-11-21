@@ -12,8 +12,8 @@ import (
 const vddMarker = "<!-- spareglass -->"
 
 // vddModeBudget caps the modes the driver's monitor offers once spareglass
-// has added its resolutions; with too many, the monitor does not come back
-// after RELOAD_DRIVER.
+// has added its resolutions; with too many, the driver leaves out the sizes
+// listed last.
 const vddModeBudget = 64
 
 var (
