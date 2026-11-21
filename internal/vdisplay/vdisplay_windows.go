@@ -20,7 +20,7 @@ import (
 
 // Default returns the Windows provider, which drives the Virtual Display
 // Driver from github.com/VirtualDrivers/Virtual-Display-Driver (an IddCx
-// driver the user installs once).
+// driver installed once with InstallDriver).
 //
 // The driver offers only the resolutions listed in its vdd_settings.xml.
 // Open uses the mode the monitor offers that is closest to the requested
@@ -40,7 +40,9 @@ const (
 )
 
 // ErrNoDriver means the Virtual Display Driver is not installed.
-var ErrNoDriver = fmt.Errorf("%w: the Virtual Display Driver is not installed: run VirtualDisplayDriver-setup.exe from the spareglass folder (see HOW-TO-USE.txt)", ErrUnavailable)
+var ErrNoDriver = fmt.Errorf("%w: the Virtual Display Driver is not installed: start spareglass.exe from the extracted spareglass folder, or run \"spareglass install-driver\", to install it (see HOW-TO-USE.txt)", ErrUnavailable)
+
+var errNotRunning = fmt.Errorf("%w: the Virtual Display Driver is installed but not running: uninstall \"Virtual Display Driver\" in Settings > Apps and start spareglass.exe again (see HOW-TO-USE.txt)", ErrUnavailable)
 
 // maxReloads caps RELOAD_DRIVER per process: the driver stops after a few
 // reloads (VirtualDrivers/Virtual-Display-Driver#351), so Open falls back to
@@ -231,7 +233,9 @@ func addVDDMode(width, height, hz int) (string, error) {
 			return "", fmt.Errorf("update %s: %w", path, err)
 		}
 	}
-	if err := vddCommand("RELOAD_DRIVER"); err != nil {
+	if err := vddCommand("RELOAD_DRIVER"); errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
+		return "", errNotRunning
+	} else if err != nil {
 		return "", fmt.Errorf("%w: the Virtual Display Driver is not responding (%v); restart Windows and try again", ErrUnavailable, err)
 	}
 	deadline := time.Now().Add(reloadLimit)

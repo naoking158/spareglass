@@ -7,33 +7,34 @@ spareglass の使い方 (Windows)
 
 必要なもの: Windows 10 / 11 (64 ビット)
 
-1. 仮想ディスプレイのドライバを入れる (初回だけ)
-------------------------------------------------
-このフォルダの「VirtualDisplayDriver-setup.exe」をダブルクリックします。
-  1) 「このアプリがデバイスに変更を加えることを許可しますか?」→「はい」
-  2) 画面の案内どおりに進めます (設定は変えずに「次へ」「インストール」)
-  3) 「このデバイス ソフトウェアをインストールしますか?」→「インストール」
-インストールが終わると、画面の設定に見慣れないディスプレイが 1 つ
-増えることがありますが、spareglass を起動すると自動で外れます。
-
-このドライバは Virtual Display Driver (MIT ライセンス,
-https://github.com/VirtualDrivers/Virtual-Display-Driver) です。
-
-2. 起動する
+1. 起動する
 -----------
 このフォルダの「spareglass.exe」をダブルクリックします。
 
 初回だけ「Windows によって PC が保護されました」と表示されたら、
 「詳細情報」→「実行」を押します。
 
+初回だけ、2 枚目の画面を作るためのドライバを自動で入れます。
+黒いウィンドウに「Installing the Virtual Display Driver」と出たあと、
+Windows の確認が出るので、次のように答えます。
+  1) 「このアプリがデバイスに変更を加えることを許可しますか?」→「はい」
+     (管理者のパスワードを聞かれたら、このパソコンの管理者に入力してもらいます)
+  2) 「このデバイス ソフトウェアをインストールしますか?」→「インストール」
+「The Virtual Display Driver is installed.」と出たら完了です。
+途中でディスプレイが 1 つ増えることがありますが、自動で外れます。
+
+このドライバは driver フォルダに入っている Virtual Display Driver
+(MIT ライセンス, https://github.com/VirtualDrivers/Virtual-Display-Driver) です。
+
 「Windows セキュリティの重要な警告」(ファイアウォール) が表示されたら、
 「プライベート ネットワーク」にチェックを入れて「アクセスを許可する」を押します。
 これを許可しないと、もう一方の機器から接続できません。
 
-黒いウィンドウが開き、QR コードと http://192.168.x.x/1 のような
-アドレスが表示されます。使っている間はこのウィンドウを開いたままにしてください。
+黒いウィンドウに QR コードと http://192.168.x.x/1 のような
+アドレスが表示されたら準備完了です。
+使っている間はこのウィンドウを開いたままにしてください。
 
-3. もう一方の機器でつなぐ
+2. もう一方の機器でつなぐ
 ------------------------
 タブレットなどのブラウザで、表示されたアドレスを開きます
 (カメラで QR コードを読み取っても開けます)。
@@ -47,7 +48,7 @@ https://github.com/VirtualDrivers/Virtual-Display-Driver) です。
 ウィンドウをマウスで右側へ動かすと、もう一方の機器に表示されます。
 画面の並びは 設定 → システム → ディスプレイ で変えられます。
 
-4. 終わる
+3. 終わる
 ---------
 黒いウィンドウで Ctrl キーを押しながら C を押します。
 2 枚目の画面は自動で外れます。
@@ -58,7 +59,23 @@ https://github.com/VirtualDrivers/Virtual-Display-Driver) です。
   ファイアウォールの許可を「パブリック」だけにした場合や、
   ネットワークが「パブリック」になっている場合は接続できません。
   黒いウィンドウに複数のアドレスが出ている場合は、別のものも試してください。
-- 「Virtual Display Driver is not installed」と出る: 「1.」を行ってください。
+- 「Virtual Display Driver is not installed」と出る: 黒いウィンドウを閉じて、
+  spareglass.exe をもう一度ダブルクリックし、Windows の確認に
+  「はい」「インストール」で答えてください。
+  「extract the whole zip」と出る場合は、zip を開いただけで展開して
+  いません。zip を右クリック →「すべて展開」してから、展開したフォルダの
+  spareglass.exe をダブルクリックしてください。
+  何度やっても入らないときは、driver フォルダの
+  VirtualDisplayDriver-setup.exe を開いて画面の案内どおりに進めます
+  (最後の画面の「Launch VDD Control」のチェックは外します)。
+- ドライバを入れるときに「インストール」を押さなかった、または
+  「display did not appear」「installed but not running」と出た: 設定 → アプリ で
+  「Virtual Display Driver」をアンインストールしてから、
+  spareglass.exe をもう一度ダブルクリックしてください。
+- 「You must install .NET Desktop Runtime to run this application.」と出た:
+  ドライバの setup を直接開いたときに、ドライバ付属の管理アプリが
+  出すメッセージです。spareglass には要らないので「いいえ」を押してください。
+  ドライバはそのまま使えます。
 - 同時に使える 2 枚目の画面は 1 台までです。
 
 同梱の ffmpeg.exe は LGPL で配布されています (ffmpeg-LICENSE.txt)。
