@@ -96,6 +96,52 @@ func TestVDDRecoversFromTooManyModes(t *testing.T) {
 	_ = d.Close()
 }
 
+// TestVDDActivatesThroughSetDisplayConfig drives the fallback that attach
+// takes when ChangeDisplaySettingsEx refuses a detached monitor.
+func TestVDDActivatesThroughSetDisplayConfig(t *testing.T) {
+	if os.Getenv("SPAREGLASS_VDD_TEST") == "" {
+		t.Skip("set SPAREGLASS_VDD_TEST=1 on a machine with the Virtual Display Driver")
+	}
+	p := Default()
+	defer p.CloseAll()
+	if err := p.CloseAll(); err != nil {
+		t.Fatal(err)
+	}
+	dev, err := vddDevice()
+	if err != nil {
+		t.Fatal(err)
+	}
+	others, err := windisplay.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windisplay.Activate(dev); err != nil {
+		t.Fatal(err)
+	}
+	m, err := windisplay.Find(dev)
+	if err != nil || !m.Attached {
+		t.Fatalf("after Activate: %+v, %v", m, err)
+	}
+	t.Logf("activated %s", describe(m))
+	for _, o := range others {
+		if o.Attached {
+			if now, err := windisplay.Find(o.Device); err != nil || now != o {
+				t.Fatalf("Activate moved %+v to %+v", o, now)
+			}
+		}
+	}
+	x, err := rightEdge(dev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := setMode(dev, Spec{Width: 1366, Height: 768, RefreshHz: 60}, x); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := windisplay.Find(dev); m.Width != 1366 || m.Height != 768 || m.X != x {
+		t.Fatalf("after setMode: %s", describe(m))
+	}
+}
+
 var errEnough = errors.New("enough")
 
 func streamFrames(t *testing.T, id, name string) {
