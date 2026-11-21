@@ -167,16 +167,17 @@ function diffStats(prev, cur) {
   const perFrame = (total, count) => (count > 0 ? (total * 1000) / count : 0);
   const decoded = d("framesDecoded");
   const ms = cur.at - prev.at;
+  const r1 = (x) => Math.round(x * 10) / 10;
   return {
     type: "stats",
     interval_ms: Math.round(ms),
-    fps: ms > 0 ? (decoded * 1000) / ms : 0,
-    jitter_buffer_ms: perFrame(d("jitterBufferDelay"), d("jitterBufferEmittedCount")),
-    decode_ms: perFrame(d("totalDecodeTime"), decoded),
-    processing_ms: perFrame(d("totalProcessingDelay"), decoded),
-    receive_to_present_ms: presented.count > 0 ? presented.receiveToPresent / presented.count : 0,
-    rtt_ms: cur.rtt,
-    kbps: ms > 0 ? (d("bytesReceived") * 8) / ms : 0,
+    fps: r1(ms > 0 ? (decoded * 1000) / ms : 0),
+    jitter_buffer_ms: r1(perFrame(d("jitterBufferDelay"), d("jitterBufferEmittedCount"))),
+    decode_ms: r1(perFrame(d("totalDecodeTime"), decoded)),
+    processing_ms: r1(perFrame(d("totalProcessingDelay"), decoded)),
+    receive_to_present_ms: r1(presented.count > 0 ? presented.receiveToPresent / presented.count : 0),
+    rtt_ms: r1(cur.rtt),
+    kbps: r1(ms > 0 ? (d("bytesReceived") * 8) / ms : 0),
     frames_dropped: d("framesDropped"),
     freezes: d("freezeCount"),
     packets_lost: d("packetsLost"),

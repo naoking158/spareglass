@@ -296,6 +296,7 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	s.mu.Unlock()
 	s.send(statusMsg{Type: "status", State: "streaming", Width: w, Height: h})
 	go func() {
+		s.sent.restart()
 		frames := 0
 		err := p.Run(context.Background(), func(f media.EncodedFrame) error {
 			frames++

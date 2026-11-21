@@ -39,6 +39,14 @@ func (s *frameStats) add(size int, key bool, now time.Time) {
 	f.last = now
 }
 
+// restart drops the previous frame's time, so the gap across a pipeline
+// restart (display recreated) is not counted.
+func (s *frameStats) restart() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counts.last = time.Time{}
+}
+
 // take returns the counters as log attributes and resets them.
 func (s *frameStats) take() []any {
 	s.mu.Lock()
