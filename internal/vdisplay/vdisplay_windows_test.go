@@ -69,15 +69,25 @@ func TestVDDRecoversFromTooManyModes(t *testing.T) {
 		entry := fmt.Sprintf("%s<resolution><width>%d</width><height>500</height><refresh_rate>60</refresh_rate></resolution>\n</resolutions>", vddMarker, 900+i*10)
 		crowded = strings.Replace(crowded, "</resolutions>", entry, 1)
 	}
+	t.Cleanup(func() {
+		_ = os.WriteFile(path, orig, 0o644)
+		_ = vddCommand("RELOAD_DRIVER")
+		time.Sleep(5 * time.Second)
+	})
 	if err := os.WriteFile(path, []byte(crowded), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := vddCommand("RELOAD_DRIVER"); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(5 * time.Second)
-	_, err = vddDevice()
-	t.Logf("monitor with %d modes listed: %v", vddModes(crowded), err)
+	gone := false
+	for deadline := time.Now().Add(reloadLimit); !gone && time.Now().Before(deadline); time.Sleep(250 * time.Millisecond) {
+		_, err := vddDevice()
+		gone = err != nil
+	}
+	if !gone {
+		t.Fatalf("the monitor survived %d modes; this test needs it gone", vddModes(crowded))
+	}
 
 	p := Default()
 	defer p.CloseAll()

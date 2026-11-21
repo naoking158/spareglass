@@ -28,19 +28,37 @@ var (
 // spareglass becomes the newest; one listed by anyone else is left alone.
 // Older resolutions added this way are dropped until the driver would offer
 // at most vddModeBudget modes; the rest of the file, comments included, is
-// kept as is.
+// kept as is. It fails when the modes stay over the budget.
 func withVDDResolution(xml string, width, height, hz int) (string, error) {
-	if moved, ok := withVDDResolutionUsed(xml, width, height); ok {
-		return moved, nil
+	out, keep := withVDDResolutionUsed(xml, width, height)
+	if !keep && !vddListed(xml, width, height) {
+		if !strings.Contains(xml, "</resolutions>") {
+			return "", errors.New("vdd_settings.xml has no <resolutions> section")
+		}
+		out, keep = withVDDEntry(xml, width, height, hz), true
 	}
+	for vddModes(out) > vddModeBudget {
+		added := vddAddedRE.FindAllStringIndex(out, -1)
+		if len(added) == 0 || keep && len(added) == 1 {
+			return "", fmt.Errorf("vdd_settings.xml lists %d modes; the Virtual Display Driver's monitor may not start with more than %d: remove resolutions or g_refresh_rate entries from it", vddModes(out), vddModeBudget)
+		}
+		out = out[:added[0][0]] + out[added[0][1]:]
+	}
+	return out, nil
+}
+
+func vddListed(xml string, width, height int) bool {
 	for _, m := range vddResolutionRE.FindAllStringSubmatch(xml, -1) {
 		if m[1] == fmt.Sprint(width) && m[2] == fmt.Sprint(height) {
-			return xml, nil
+			return true
 		}
 	}
-	if !strings.Contains(xml, "</resolutions>") {
-		return "", errors.New("vdd_settings.xml has no <resolutions> section")
-	}
+	return false
+}
+
+// withVDDEntry appends width×height as a resolution added by spareglass. It
+// omits the refresh rate when a global one already gives that mode.
+func withVDDEntry(xml string, width, height, hz int) string {
 	if hz <= 0 {
 		hz = 60
 	}
@@ -52,15 +70,7 @@ func withVDDResolution(xml string, width, height, hz int) (string, error) {
 	}
 	entry := fmt.Sprintf("    %s\n        <resolution>\n            <width>%d</width>\n            <height>%d</height>%s\n        </resolution>\n    ", vddMarker, width, height, refresh)
 	i := strings.Index(xml, "</resolutions>")
-	out := xml[:i] + entry + xml[i:]
-	for vddModes(out) > vddModeBudget {
-		added := vddAddedRE.FindAllStringIndex(out, -1)
-		if len(added) < 2 {
-			break
-		}
-		out = out[:added[0][0]] + out[added[0][1]:]
-	}
-	return out, nil
+	return xml[:i] + entry + xml[i:]
 }
 
 // vddModes counts the modes the driver builds from the settings: one per

@@ -109,17 +109,30 @@ func TestWithVDDResolutionStaysWithinTheModeBudget(t *testing.T) {
 	}
 }
 
-func TestWithVDDResolutionAddsOverTheBudget(t *testing.T) {
+func TestWithVDDResolutionPrunesWhenReusingASize(t *testing.T) {
+	doc := vddDefault
+	for i := range 8 {
+		doc = strings.Replace(doc, "</resolutions>", fmt.Sprintf("%s<resolution><width>%d</width><height>500</height><refresh_rate>60</refresh_rate></resolution></resolutions>", vddMarker, 900+i), 1)
+	}
+	doc, err := withVDDResolution(doc, 903, 500, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := vddModes(doc); n > vddModeBudget {
+		t.Fatalf("the driver would offer %d modes, over %d", n, vddModeBudget)
+	}
+	if got := sizesOf(t, doc); got[len(got)-1] != "903x500" {
+		t.Fatalf("resolutions = %v, want 903x500 newest", got)
+	}
+}
+
+func TestWithVDDResolutionRefusesOverTheBudget(t *testing.T) {
 	doc := vddDefault
 	for i := range 6 {
 		doc = strings.Replace(doc, "</resolutions>", fmt.Sprintf("<resolution><width>%d</width><height>500</height><refresh_rate>30</refresh_rate></resolution></resolutions>", 900+i), 1)
 	}
-	doc, err := withVDDResolution(doc, 1180, 820, 60)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := sizesOf(t, doc); got[len(got)-1] != "1180x820" {
-		t.Fatalf("resolutions = %v, want 1180x820 added", got)
+	if _, err := withVDDResolution(doc, 1180, 820, 60); err == nil {
+		t.Fatal("want an error when the user's own resolutions already exceed the budget")
 	}
 }
 
