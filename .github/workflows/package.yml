@@ -41,7 +41,7 @@ jobs:
           cp third_party/macos/ffmpeg "$dir/"
           go test -c -o "$dir/media.test" ./internal/media
           cd "$dir" && PATH=/usr/bin:/bin ./media.test -test.v -test.run FFmpeg | tee test.log
-          ! grep -q -- "--- SKIP" test.log
+          if grep -- "--- SKIP" test.log; then echo "tests were skipped"; exit 1; fi
           grep -q -- "--- PASS" test.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -101,7 +101,7 @@ jobs:
           cd "$dir"
           PATH=/usr/bin:/bin ./media.test.exe -test.v | tee test.log
           PATH=/usr/bin:/bin ./server.test.exe -test.v -test.run TestStreamsVideo | tee -a test.log
-          ! grep -q -- "--- SKIP" test.log
+          if grep -- "--- SKIP" test.log; then echo "tests were skipped"; exit 1; fi
           grep -q -- "--- PASS: TestPipelineCapturesPrimaryMonitor" test.log
           grep -q -- "--- PASS: TestStreamsVideo" test.log
       - name: A second host refuses to start
