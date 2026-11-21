@@ -23,9 +23,10 @@ import (
 //
 // The driver offers only the resolutions listed in its vdd_settings.xml, so
 // Open adds the requested size there and sends RELOAD_DRIVER over the
-// driver's named pipe when its monitor lacks that mode, then sets the mode
-// and places the monitor right of the others. The driver cannot go below one
-// monitor, so Close detaches it from the desktop instead of removing it.
+// driver's named pipe when its monitor lacks that mode or is missing, then
+// sets the mode and places the monitor right of the others. The driver cannot
+// go below one monitor, so Close detaches it from the desktop instead of
+// removing it.
 func Default() Provider { return &vddProvider{} }
 
 const (
@@ -49,11 +50,10 @@ func (*vddProvider) Name() string {
 }
 
 func (*vddProvider) Available() error {
-	if _, err := os.Stat(vddSettingsPath()); err != nil {
+	if !vddInstalled() {
 		return ErrNoDriver
 	}
-	_, err := vddDevice()
-	return err
+	return nil
 }
 
 func (p *vddProvider) Open(s Spec) (Display, error) {
@@ -63,14 +63,16 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 		return nil, fmt.Errorf("%w: Windows supports one spareglass display at a time", ErrUnavailable)
 	}
 	dev, err := vddDevice()
-	if err != nil {
-		return nil, err
-	}
-	if windisplay.HasMode(dev, s.Width, s.Height) {
+	switch {
+	case err == nil && windisplay.HasMode(dev, s.Width, s.Height):
 		markVDDModeUsed(s.Width, s.Height)
-	} else if dev, err = addVDDMode(s.Width, s.Height, int(s.RefreshHz)); err != nil {
-		_ = detachVDDMonitors()
+	case err != nil && !vddInstalled():
 		return nil, err
+	default:
+		if dev, err = addVDDMode(s.Width, s.Height, int(s.RefreshHz)); err != nil {
+			_ = detachVDDMonitors()
+			return nil, err
+		}
 	}
 	if err := attach(dev, s); err != nil {
 		_ = windisplay.Detach(dev)
@@ -172,7 +174,7 @@ func addVDDMode(width, height, hz int) (string, error) {
 	}
 	updated, err := withVDDResolution(string(b), width, height, hz)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%s: %w", path, err)
 	}
 	if updated != string(b) {
 		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
@@ -220,6 +222,13 @@ func rightEdge(dev string) (int, error) {
 		}
 	}
 	return x, nil
+}
+
+// vddInstalled reports whether the driver's settings file exists, which
+// stays true while its monitor is gone after a failed reload.
+func vddInstalled() bool {
+	_, err := os.Stat(vddSettingsPath())
+	return err == nil
 }
 
 func vddSettingsPath() string {
