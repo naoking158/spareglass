@@ -10,20 +10,25 @@ on:
         type: boolean
         required: true
 
-# Token permissions come from the caller (read in CI, write for releases).
+# The caller grants the token (read in CI, contents: write for releases). Only
+# the goreleaser job inherits it; every other job is limited to read.
 jobs:
   ffmpeg-macos:
+    permissions:
+      contents: read
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
       - id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: third_party/macos
           key: ffmpeg-macos-${{ hashFiles('packaging/macos/build-ffmpeg.sh') }}
       - if: steps.cache.outputs.cache-hit != 'true'
         run: packaging/macos/build-ffmpeg.sh third_party/macos
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
       - name: Pipeline tests against the bundled ffmpeg only
@@ -37,18 +42,22 @@ jobs:
           cd "$dir" && PATH=/usr/bin:/bin ./media.test -test.v -test.run FFmpeg | tee test.log
           ! grep -q -- "--- SKIP" test.log
           grep -q -- "--- PASS" test.log
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ffmpeg-macos
           path: third_party/macos
           retention-days: 1
 
   ffmpeg-windows:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
       - id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: third_party/windows
           key: ffmpeg-windows-${{ hashFiles('packaging/windows/build-ffmpeg.sh', 'packaging/windows/ffmpeg.manifest') }}
@@ -57,21 +66,25 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq mingw-w64 >/dev/null
           packaging/windows/build-ffmpeg.sh third_party/windows
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ffmpeg-windows
           path: third_party/windows
           retention-days: 1
 
   windows-pipeline:
+    permissions:
+      contents: read
     needs: ffmpeg-windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ffmpeg-windows
           path: third_party/windows
@@ -91,14 +104,18 @@ jobs:
           grep -q -- "--- PASS: TestStreamsVideo" test.log
 
   windows-vdd:
+    permissions:
+      contents: read
     needs: ffmpeg-windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ffmpeg-windows
           path: third_party/windows
@@ -168,7 +185,7 @@ jobs:
           ./server.test.exe -test.v -test.run TestStreamsVirtualDisplay | tee -a test.log
           grep -q -- "--- PASS: TestVDDDisplayStreams" test.log
           grep -q -- "--- PASS: TestStreamsVirtualDisplay" test.log
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: vdd-frames
@@ -179,31 +196,32 @@ jobs:
     needs: [ffmpeg-macos, ffmpeg-windows, windows-pipeline, windows-vdd]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ffmpeg-macos
           path: third_party/macos
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ffmpeg-windows
           path: third_party/windows
       - run: packaging/windows/fetch-vdd.sh third_party/windows
         env:
           GH_TOKEN: ${{ github.token }}
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
         with:
-          version: "~> v2"
+          version: v2.20.2
           args: release --clean ${{ inputs.snapshot && '--snapshot' || '' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
       - if: inputs.snapshot
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-archives
           path: |
@@ -214,6 +232,8 @@ jobs:
 
   # Unpack the archives a person would download and run them as-is.
   archive-smoke:
+    permissions:
+      contents: read
     if: inputs.snapshot
     needs: goreleaser
     strategy:
@@ -228,7 +248,7 @@ jobs:
             files: spareglass ffmpeg "Start spareglass.command" HOW-TO-USE.txt
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-archives
       - name: Unpack and run doctor
