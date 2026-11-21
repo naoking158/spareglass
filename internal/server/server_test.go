@@ -12,9 +12,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
 	"github.com/naoking158/spareglass/internal/config"
@@ -256,6 +258,28 @@ func TestStreamsVirtualDisplay(t *testing.T) {
 
 func streamOverWebRTC(t *testing.T, p vdisplay.Provider, f media.Factory, width, height int, wait time.Duration) {
 	t.Helper()
+	mime, pkts := receiveVideo(t, p, f, width, height, 30, wait)
+	if mime != webrtc.MimeTypeH264 {
+		t.Fatalf("codec = %s, want H264", mime)
+	}
+	sawStart := false
+	for _, pkt := range pkts {
+		if len(pkt.Payload) > 0 {
+			typ := pkt.Payload[0] & 0x1f
+			if typ == 7 || typ == 24 || typ == 28 || typ == 5 {
+				sawStart = true
+			}
+		}
+	}
+	if !sawStart {
+		t.Fatalf("received %d packets, no keyframe/SPS", len(pkts))
+	}
+}
+
+// receiveVideo connects a browser-like peer, says hello at width x height
+// and returns the first n RTP packets of the video track.
+func receiveVideo(t *testing.T, p vdisplay.Provider, f media.Factory, width, height, n int, wait time.Duration) (string, []*rtp.Packet) {
+	t.Helper()
 	ts := newTestServer(t, p, true, f)
 	auth := pairDevice(t, ts.URL)
 
@@ -273,25 +297,18 @@ func streamOverWebRTC(t *testing.T, p vdisplay.Provider, f media.Factory, width,
 	})
 
 	type result struct {
-		mime     string
-		packets  int
-		sawStart bool
+		mime string
+		pkts []*rtp.Packet
 	}
 	done := make(chan result, 1)
 	pc.OnTrack(func(tr *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		r := result{mime: tr.Codec().MimeType}
-		for r.packets < 30 {
+		for len(r.pkts) < n {
 			pkt, _, err := tr.ReadRTP()
 			if err != nil {
 				break
 			}
-			r.packets++
-			if len(pkt.Payload) > 0 {
-				typ := pkt.Payload[0] & 0x1f
-				if typ == 7 || typ == 24 || typ == 28 || typ == 5 {
-					r.sawStart = true
-				}
-			}
+			r.pkts = append(r.pkts, pkt)
 		}
 		done <- r
 	})
@@ -312,14 +329,66 @@ func streamOverWebRTC(t *testing.T, p vdisplay.Provider, f media.Factory, width,
 
 	select {
 	case r := <-done:
-		if r.mime != webrtc.MimeTypeH264 {
-			t.Fatalf("codec = %s, want H264", r.mime)
+		if len(r.pkts) < n {
+			t.Fatalf("received %d packets, want %d", len(r.pkts), n)
 		}
-		if r.packets < 30 || !r.sawStart {
-			t.Fatalf("received %d packets, keyframe/SPS seen: %v", r.packets, r.sawStart)
-		}
+		return r.mime, r.pkts
 	case <-time.After(wait):
 		t.Fatal("no video received")
+	}
+	return "", nil
+}
+
+// timedPipeline emits one-NAL access units whose second byte is the frame
+// index, with Durations cycling through durations.
+type timedPipeline struct {
+	durations []time.Duration
+	stop      chan struct{}
+	once      sync.Once
+}
+
+func (p *timedPipeline) Run(ctx context.Context, out func(media.EncodedFrame) error) error {
+	for i := 0; ; i++ {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-p.stop:
+			return nil
+		case <-time.After(5 * time.Millisecond):
+		}
+		f := media.EncodedFrame{Data: []byte{0, 0, 0, 1, 0x65, byte(i)}, Duration: p.durations[i%len(p.durations)], Keyframe: true}
+		if err := out(f); err != nil {
+			return err
+		}
+	}
+}
+func (p *timedPipeline) RequestKeyframe() {}
+func (p *timedPipeline) Close() error     { p.once.Do(func() { close(p.stop) }); return nil }
+
+// TestRTPTimestampsFollowFrameTimes checks that a frame's RTP timestamp is
+// its own time: it is the previous frame's timestamp plus this frame's
+// Duration (the time since the previous frame), not the previous one's.
+func TestRTPTimestampsFollowFrameTimes(t *testing.T) {
+	// Four entries, so the cycle stays aligned when the one-byte index wraps.
+	durations := []time.Duration{10 * time.Millisecond, 40 * time.Millisecond, 25 * time.Millisecond, 15 * time.Millisecond}
+	factory := func(string, int, int) (media.Pipeline, error) {
+		return &timedPipeline{durations: durations, stop: make(chan struct{})}, nil
+	}
+	_, pkts := receiveVideo(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, factory, 640, 480, 20, 15*time.Second)
+	compared := 0
+	for i := 1; i < len(pkts); i++ {
+		prev, cur := pkts[i-1], pkts[i]
+		if byte(cur.Payload[1]) != byte(prev.Payload[1])+1 {
+			continue
+		}
+		compared++
+		want := uint32(durations[int(cur.Payload[1])%len(durations)] * videoClockRate / time.Second)
+		if got := cur.Timestamp - prev.Timestamp; got != want {
+			t.Fatalf("frame %d: timestamp advanced %d ticks, want %d (its own Duration)", cur.Payload[1], got, want)
+		}
+	}
+	if compared < 5 {
+		t.Fatalf("only %d consecutive frames received", compared)
 	}
 }
 

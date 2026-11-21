@@ -50,7 +50,8 @@ type Session struct {
 	slot  int
 	m     *Manager
 	pc    *webrtc.PeerConnection
-	track *webrtc.TrackLocalStaticSample
+	track *webrtc.TrackLocalStaticRTP
+	video *frameWriter
 	log   *slog.Logger
 
 	mu       sync.Mutex
@@ -89,14 +90,15 @@ func (m *Manager) Create(ctx context.Context, offer string, slot int, device str
 	}
 
 	// Constrained Baseline is what every browser decodes in hardware.
-	s.track, err = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
+	s.track, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{
 		MimeType:    webrtc.MimeTypeH264,
-		ClockRate:   90000,
+		ClockRate:   videoClockRate,
 		SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
 	}, "video", "spareglass")
 	if err != nil {
 		return fail(err)
 	}
+	s.video = newFrameWriter(s.track)
 	sender, err := pc.AddTrack(s.track)
 	if err != nil {
 		return fail(fmt.Errorf("add video track: %w", err))
@@ -293,7 +295,7 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 			if frames == 1 {
 				s.log.Info("first frame sent", "bytes", len(f.Data), "keyframe", f.Keyframe)
 			}
-			return s.track.WriteSample(sampleOf(f))
+			return s.video.write(f)
 		})
 		if err != nil {
 			s.log.Warn("capture pipeline stopped", "err", err)
