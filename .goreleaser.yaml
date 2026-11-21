@@ -14,11 +14,14 @@ before:
     - go mod tidy
 
 builds:
+  # cgo builds the in-process ScreenCaptureKit + VideoToolbox pipeline, so
+  # this target needs macOS with Xcode command line tools (see package.yml).
   - id: mac
     main: ./cmd/spareglass
     binary: spareglass
-    env: &env
-      - CGO_ENABLED=0
+    env:
+      - CGO_ENABLED=1
+      - MACOSX_DEPLOYMENT_TARGET=14.0
     goos: [darwin]
     goarch: [amd64, arm64]
     flags: &flags
@@ -29,7 +32,8 @@ builds:
   - id: windows
     main: ./cmd/spareglass
     binary: spareglass
-    env: *env
+    env: &env
+      - CGO_ENABLED=0
     goos: [windows]
     goarch: [amd64]
     flags: *flags

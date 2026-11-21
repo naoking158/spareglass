@@ -283,9 +283,11 @@ jobs:
           path: vdd-frames
           retention-days: 7
 
+  # macOS, because the mac binary is built with cgo (ScreenCaptureKit and
+  # VideoToolbox); the Windows and Linux binaries cross-compile without cgo.
   goreleaser:
     needs: [ffmpeg-macos, ffmpeg-windows, windows-pipeline, windows-vdd]
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -353,5 +355,15 @@ jobs:
           for f in ${{ matrix.files }}; do test -e "$f" || { echo "missing $f"; exit 1; }; done
           if compgen -G "*setup*" >/dev/null; then echo "an installer sits next to spareglass"; exit 1; fi
           ./spareglass doctor | tee doctor.txt
-          grep "Capture/encode" doctor.txt | grep -q unpacked
-          ! grep "Capture/encode" doctor.txt | grep -q "NOT AVAILABLE"
+          if grep "Capture/encode" doctor.txt | grep -q "NOT AVAILABLE"; then exit 1; fi
+          if [ "$RUNNER_OS" = macOS ]; then
+            grep "Capture/encode" doctor.txt | grep -q ScreenCaptureKit
+            lipo -archs spareglass | tee archs.txt
+            grep -q x86_64 archs.txt
+            grep -q arm64 archs.txt
+            for arch in x86_64 arm64; do
+              test "$(vtool -arch "$arch" -show-build spareglass | awk '/minos/ {print $2}')" = 14.0
+            done
+          else
+            grep "Capture/encode" doctor.txt | grep -q unpacked
+          fi
