@@ -29,8 +29,6 @@ jobs:
       - run: go test -race ./...
       - run: go build ./cmd/spareglass
 
-  # Static checks for the workflows themselves: actions pinned by SHA,
-  # least-privilege tokens, template injection, cache poisoning.
   zizmor:
     runs-on: ubuntu-latest
     steps:
