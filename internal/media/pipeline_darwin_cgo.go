@@ -22,6 +22,9 @@ import (
 	"unsafe"
 )
 
+// InProcess reports whether NewPipeline captures and encodes without ffmpeg.
+const InProcess = true
+
 // NewPipeline captures the display with ScreenCaptureKit and encodes it
 // with VideoToolbox in-process. The encoder holds no frames, and a keyframe
 // request re-encodes the last captured picture.

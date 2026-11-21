@@ -9,6 +9,9 @@ import (
 	"github.com/naoking158/spareglass/internal/windisplay"
 )
 
+// InProcess reports whether NewPipeline captures and encodes without ffmpeg.
+const InProcess = false
+
 // NewPipeline captures the monitor named displayID (e.g. \\.\DISPLAY3) with
 // ffmpeg's gdigrab over that monitor's desktop rectangle and encodes it with
 // the Media Foundation H.264 encoder.
