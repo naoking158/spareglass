@@ -65,6 +65,9 @@ Windows の確認が出るので、次のように答えます。
   「extract the whole zip」と出る場合は、zip を開いただけで展開して
   いません。zip を右クリック →「すべて展開」してから、展開したフォルダの
   spareglass.exe をダブルクリックしてください。
+  何度やっても入らないときは、driver フォルダの
+  VirtualDisplayDriver-setup.exe を開いて画面の案内どおりに進めます
+  (最後の画面の「Launch VDD Control」のチェックは外します)。
 - ドライバを入れるときに「インストール」を押さなかった、または
   「display did not appear」「installed but not running」と出た: 設定 → アプリ で
   「Virtual Display Driver」をアンインストールしてから、
