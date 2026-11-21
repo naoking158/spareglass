@@ -82,6 +82,32 @@ func TestWithVDDResolutionKeepsTheNewestAdded(t *testing.T) {
 	}
 }
 
+func TestWithVDDResolutionKeepsAReusedSize(t *testing.T) {
+	doc, err := withVDDResolution(vddSample, 1180, 820, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range vddKeep + 3 {
+		if doc, err = withVDDResolution(doc, 1000+i, 700, 60); err != nil {
+			t.Fatal(err)
+		}
+		if moved, ok := withVDDResolutionUsed(doc, 1180, 820); ok {
+			doc = moved
+		}
+	}
+	var s vddSettings
+	if err := xml.Unmarshal([]byte(doc), &s); err != nil {
+		t.Fatalf("result is not valid XML: %v\n%s", err, doc)
+	}
+	last := s.Resolutions[len(s.Resolutions)-1]
+	if last.Width != 1180 || last.Height != 820 || len(s.Resolutions) != vddKeep+1 {
+		t.Fatalf("resolutions = %+v, want 800x600 plus %d with 1180x820 newest", s.Resolutions, vddKeep)
+	}
+	if _, ok := withVDDResolutionUsed(doc, 800, 600); ok {
+		t.Fatal("moved a resolution spareglass did not add")
+	}
+}
+
 func TestWithVDDResolutionNeedsSection(t *testing.T) {
 	if _, err := withVDDResolution("<vdd_settings/>", 1180, 820, 60); err == nil {
 		t.Fatal("want an error without <resolutions>")

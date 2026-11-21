@@ -66,11 +66,11 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !windisplay.HasMode(dev, s.Width, s.Height) {
-		if dev, err = addVDDMode(s.Width, s.Height, int(s.RefreshHz)); err != nil {
-			_ = detachVDDMonitors()
-			return nil, err
-		}
+	if windisplay.HasMode(dev, s.Width, s.Height) {
+		markVDDModeUsed(s.Width, s.Height)
+	} else if dev, err = addVDDMode(s.Width, s.Height, int(s.RefreshHz)); err != nil {
+		_ = detachVDDMonitors()
+		return nil, err
 	}
 	if err := attach(dev, s); err != nil {
 		_ = windisplay.Detach(dev)
@@ -190,6 +190,20 @@ func addVDDMode(width, height, hz int) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("the Virtual Display Driver did not offer %dx%d after a reload", width, height)
+}
+
+// markVDDModeUsed records in the driver settings that width×height was used
+// again, so that it outlives sizes used less recently. The driver reads the
+// file on its next reload; nothing is reloaded now.
+func markVDDModeUsed(width, height int) {
+	path := vddSettingsPath()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	if updated, ok := withVDDResolutionUsed(string(b), width, height); ok && updated != string(b) {
+		_ = os.WriteFile(path, []byte(updated), 0o644)
+	}
 }
 
 // rightEdge returns the x coordinate just right of every attached monitor

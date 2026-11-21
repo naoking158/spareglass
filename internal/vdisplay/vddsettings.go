@@ -22,10 +22,14 @@ var (
 )
 
 // withVDDResolution returns the Virtual Display Driver's vdd_settings.xml
-// with width×height listed under <resolutions>, unchanged when it is already
-// listed. Only the newest vddKeep resolutions added this way are kept; the
-// rest of the file, comments included, is kept as is.
+// with width×height listed under <resolutions>. A size already added by
+// spareglass becomes the newest; one listed by anyone else is left alone.
+// Only the newest vddKeep resolutions added this way are kept; the rest of
+// the file, comments included, is kept as is.
 func withVDDResolution(xml string, width, height, hz int) (string, error) {
+	if moved, ok := withVDDResolutionUsed(xml, width, height); ok {
+		return moved, nil
+	}
 	for _, m := range vddResolutionRE.FindAllStringSubmatch(xml, -1) {
 		if m[1] == fmt.Sprint(width) && m[2] == fmt.Sprint(height) {
 			return xml, nil
@@ -49,4 +53,27 @@ func withVDDResolution(xml string, width, height, hz int) (string, error) {
 	i := strings.Index(xml, "</resolutions>")
 	entry := fmt.Sprintf("    %s\n        <resolution>\n            <width>%d</width>\n            <height>%d</height>\n            <refresh_rate>%d</refresh_rate>\n        </resolution>\n    ", vddMarker, width, height, hz)
 	return xml[:i] + entry + xml[i:], nil
+}
+
+// withVDDResolutionUsed moves width×height to the end of the resolutions
+// spareglass added, so that it is pruned last. It reports false when
+// spareglass did not add that size.
+func withVDDResolutionUsed(xml string, width, height int) (string, bool) {
+	for _, loc := range vddAddedRE.FindAllStringIndex(xml, -1) {
+		entry := xml[loc[0]:loc[1]]
+		m := vddResolutionRE.FindStringSubmatch(entry)
+		if m == nil || m[1] != fmt.Sprint(width) || m[2] != fmt.Sprint(height) {
+			continue
+		}
+		if strings.HasPrefix(xml[loc[1]:], "</resolutions>") {
+			return xml, true
+		}
+		rest := xml[:loc[0]] + xml[loc[1]:]
+		i := strings.Index(rest, "</resolutions>")
+		if i < 0 {
+			return xml, false
+		}
+		return rest[:i] + "    " + strings.TrimSpace(entry) + "\n    " + rest[i:], true
+	}
+	return xml, false
 }
