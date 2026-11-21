@@ -187,6 +187,38 @@ jobs:
           grep -q -- "--- PASS: TestStreamsVirtualDisplay" test.log
           echo "resolutions added by spareglass: $(grep -c -- '<!-- spareglass -->' /c/VirtualDisplayDriver/vdd_settings.xml)"
           grep -q -- '<!-- spareglass -->' /c/VirtualDisplayDriver/vdd_settings.xml
+      - name: Virtual display as a standard (non-admin) user
+        shell: pwsh
+        run: |
+          $dir = "C:\sgcheck"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item third_party\windows\ffmpeg.exe $dir
+          go test -c -o "$dir\vdisplay.test.exe" ./internal/vdisplay
+          if ($LASTEXITCODE) { exit 1 }
+          @'
+          $ErrorActionPreference = "Continue"
+          $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+          "user: $($id.Name) admin: $(([Security.Principal.WindowsPrincipal]$id).IsInRole('Administrators'))"
+          try { [IO.File]::Open("C:\VirtualDisplayDriver\vdd_settings.xml", "Open", "ReadWrite").Close(); "settings: writable" } catch { "settings: $_" }
+          try { $p = [IO.Pipes.NamedPipeClientStream]::new(".", "MTTVirtualDisplayPipe", "InOut"); $p.Connect(5000); $p.Close(); "pipe: connected" } catch { "pipe: $_" }
+          $env:SPAREGLASS_VDD_TEST = "1"
+          & C:\sgcheck\vdisplay.test.exe -test.v -test.run TestVDDDisplayStreams 2>&1
+          '@ | Set-Content "$dir\check.ps1"
+          icacls $dir /grant "*S-1-1-0:(OI)(CI)F" | Out-Null
+
+          $pw = "Sg-" + [guid]::NewGuid().ToString("N").Substring(0, 16) + "!a1"
+          $sec = ConvertTo-SecureString $pw -AsPlainText -Force
+          New-LocalUser -Name sgstd -Password $sec -AccountNeverExpires | Out-Null
+          Add-LocalGroupMember -Group Users -Member sgstd
+          $cred = [PSCredential]::new("$env:COMPUTERNAME\sgstd", $sec)
+          $p = Start-Process powershell -Credential $cred -LoadUserProfile -WorkingDirectory $dir -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$dir\check.ps1" -RedirectStandardOutput "$dir\out.txt" -RedirectStandardError "$dir\err.txt" -Wait -PassThru
+          "exit: $($p.ExitCode)"
+          Get-Content "$dir\out.txt", "$dir\err.txt"
+          $out = Get-Content -Raw "$dir\out.txt"
+          if ($out -notmatch "admin: False") { "not a standard user"; exit 1 }
+          if ($out -notmatch "settings: writable") { exit 1 }
+          if ($out -notmatch "pipe: connected") { exit 1 }
+          if ($out -notmatch "--- PASS: TestVDDDisplayStreams") { exit 1 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
