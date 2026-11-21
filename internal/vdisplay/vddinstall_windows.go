@@ -12,19 +12,15 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-// DriverSetup is where release archives put the Virtual Display Driver
-// installer, relative to the spareglass executable.
-const DriverSetup = `driver\VirtualDisplayDriver-setup.exe`
-
 const installWait = 30 * time.Second
 
 // ErrDriverInstalled means the Virtual Display Driver's setup has already run
 // on this computer.
 var ErrDriverInstalled = errors.New(`the Virtual Display Driver is already installed (to reinstall it, first uninstall "Virtual Display Driver" in Settings > Apps)`)
 
-// DriverInstalled reports whether the Virtual Display Driver's setup has run
+// driverInstalled reports whether the Virtual Display Driver's setup has run
 // on this computer, even if the driver is not working now.
-func DriverInstalled() bool {
+func driverInstalled() bool {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, vddRegKey, registry.QUERY_VALUE)
 	if err != nil {
 		return false
@@ -40,9 +36,10 @@ func DriverInstalled() bool {
 // monitor appears. It tells w what Windows is about to ask: whether to allow
 // the change and whether to install the device software. It returns
 // ErrDriverInstalled without running the setup, which would otherwise ask in
-// English whether to uninstall the driver, when DriverInstalled is true.
+// English whether to uninstall the driver, when that setup has already run
+// on this computer.
 func InstallDriver(w io.Writer, setupPath, logPath string) error {
-	if DriverInstalled() {
+	if driverInstalled() {
 		return ErrDriverInstalled
 	}
 	fmt.Fprintln(w, "Installing the Virtual Display Driver (first time only).")

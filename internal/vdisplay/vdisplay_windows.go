@@ -41,6 +41,8 @@ const (
 // ErrNoDriver means the Virtual Display Driver is not installed.
 var ErrNoDriver = fmt.Errorf("%w: the Virtual Display Driver is not installed: start spareglass.exe from the extracted spareglass folder, or run \"spareglass install-driver\", to install it (see HOW-TO-USE.txt)", ErrUnavailable)
 
+var errNotRunning = fmt.Errorf("%w: the Virtual Display Driver is installed but not running: uninstall \"Virtual Display Driver\" in Settings > Apps and start spareglass.exe again (see HOW-TO-USE.txt)", ErrUnavailable)
+
 type vddProvider struct {
 	mu   sync.Mutex
 	open *vddDisplay
@@ -211,7 +213,9 @@ func addVDDMode(width, height, hz int) (string, error) {
 			return "", fmt.Errorf("update %s: %w", path, err)
 		}
 	}
-	if err := vddCommand("RELOAD_DRIVER"); err != nil {
+	if err := vddCommand("RELOAD_DRIVER"); errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
+		return "", errNotRunning
+	} else if err != nil {
 		return "", fmt.Errorf("reload the Virtual Display Driver: %w", err)
 	}
 	deadline := time.Now().Add(reloadLimit)

@@ -12,19 +12,18 @@ import (
 	"github.com/naoking158/spareglass/internal/vdisplay"
 )
 
+// driverSetup is where release archives put the Virtual Display Driver
+// installer, relative to spareglass.exe.
+const driverSetup = `driver\VirtualDisplayDriver-setup.exe`
+
 // installDriverIfMissing installs the Virtual Display Driver shipped next to
-// spareglass.exe when it has never been installed and someone is at the
-// console to answer Windows' prompts.
+// spareglass.exe when it is missing and someone is at the console to answer
+// Windows' prompts.
 func installDriverIfMissing(p vdisplay.Provider) {
-	if p.Available() == nil || vdisplay.DriverInstalled() || !stdinIsConsole() {
+	if p.Available() == nil || !stdinIsConsole() {
 		return
 	}
-	setup, err := driverSetupPath()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot install the Virtual Display Driver: %v.\nExtract the whole zip and start spareglass.exe from the extracted folder.\n", err)
-		return
-	}
-	if err := installDriver(setup); err != nil {
+	if err := runInstallDriver(); err != nil {
 		fmt.Fprintln(os.Stderr, "Could not install the Virtual Display Driver:", err)
 	}
 }
@@ -34,10 +33,6 @@ func runInstallDriver() error {
 	if err != nil {
 		return err
 	}
-	return installDriver(setup)
-}
-
-func installDriver(setup string) error {
 	return vdisplay.InstallDriver(os.Stdout, setup, filepath.Join(os.TempDir(), "spareglass-driver-setup.log"))
 }
 
@@ -49,9 +44,9 @@ func driverSetupPath() (string, error) {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
-	p := filepath.Join(filepath.Dir(exe), vdisplay.DriverSetup)
+	p := filepath.Join(filepath.Dir(exe), driverSetup)
 	if _, err := os.Stat(p); err != nil {
-		return "", fmt.Errorf("its installer %s is missing", p)
+		return "", fmt.Errorf("%w; extract the whole zip and start spareglass.exe from the extracted folder", err)
 	}
 	return p, nil
 }
