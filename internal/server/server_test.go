@@ -388,3 +388,22 @@ func TestUnavailableDisplayIsNotRetriedSmaller(t *testing.T) {
 		t.Fatalf("Open called %d times, want 1", up.calls)
 	}
 }
+
+// macOS screen capture shears the picture when the display width is not a
+// multiple of 4, so every size handed to the provider must be aligned.
+func TestDisplaySizesAreAligned(t *testing.T) {
+	for _, size := range [][2]float64{{1010, 450}, {1011, 451}, {3846, 1603}, {1603, 3846}} {
+		rp := &refusingProvider{fakeProvider{opened: make(chan vdisplay.Spec, 1)}}
+		m := NewManager(config.Default(), rp, func(string, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		s := &Session{m: m, slot: 0, log: m.log}
+		s.ensureDisplay(controlMsg{Type: "hello", Width: size[0], Height: size[1], DPR: 1})
+		select {
+		case spec := <-rp.opened:
+			if spec.Width%4 != 0 || spec.Height%2 != 0 {
+				t.Errorf("%vx%v: opened %dx%d, want width a multiple of 4 and even height", size[0], size[1], spec.Width, spec.Height)
+			}
+		default:
+			t.Errorf("%vx%v: no display opened", size[0], size[1])
+		}
+	}
+}

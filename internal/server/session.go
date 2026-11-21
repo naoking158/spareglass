@@ -377,8 +377,10 @@ func newID() string {
 
 // fallbackSizes returns the requested size followed by smaller sizes with
 // the same aspect ratio that fit 2560x1440 and 1920x1080, without repeats.
+// Every size is aligned: width to a multiple of 4, height to even. macOS
+// screen capture shears the picture when the width is not a multiple of 4.
 func fallbackSizes(w, h int) [][2]int {
-	sizes := [][2]int{{w, h}}
+	sizes := [][2]int{{w &^ 3, h &^ 1}}
 	for _, box := range [][2]int{{2560, 1440}, {1920, 1080}} {
 		bw, bh := box[0], box[1]
 		if h > w { // portrait screens: fit a portrait box
@@ -388,7 +390,7 @@ func fallbackSizes(w, h int) [][2]int {
 		if scale >= 1 {
 			continue
 		}
-		fw := int(float64(w)*scale) &^ 1 // even sizes suit video encoders
+		fw := int(float64(w)*scale) &^ 3
 		fh := int(float64(h)*scale) &^ 1
 		if last := sizes[len(sizes)-1]; last != [2]int{fw, fh} {
 			sizes = append(sizes, [2]int{fw, fh})

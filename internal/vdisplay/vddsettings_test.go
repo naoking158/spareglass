@@ -2,6 +2,7 @@ package vdisplay
 
 import (
 	"encoding/xml"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -50,6 +51,60 @@ func TestWithVDDResolutionAddsOnce(t *testing.T) {
 	}
 	if !strings.Contains(once, "<!-- kept -->") {
 		t.Fatal("comment lost")
+	}
+}
+
+func TestWithVDDResolutionKeepsTheNewestAdded(t *testing.T) {
+	doc := vddSample
+	for i := range vddKeep + 3 {
+		var err error
+		if doc, err = withVDDResolution(doc, 1000+i, 700, 60); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var s vddSettings
+	if err := xml.Unmarshal([]byte(doc), &s); err != nil {
+		t.Fatalf("result is not valid XML: %v\n%s", err, doc)
+	}
+	var got []string
+	for _, r := range s.Resolutions {
+		got = append(got, fmt.Sprintf("%dx%d", r.Width, r.Height))
+	}
+	want := []string{"800x600"}
+	for i := 3; i < vddKeep+3; i++ {
+		want = append(want, fmt.Sprintf("%dx700", 1000+i))
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("resolutions = %v, want %v", got, want)
+	}
+	if !strings.Contains(doc, "<!-- kept -->") {
+		t.Fatal("comment lost")
+	}
+}
+
+func TestWithVDDResolutionKeepsAReusedSize(t *testing.T) {
+	doc, err := withVDDResolution(vddSample, 1180, 820, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range vddKeep + 3 {
+		if doc, err = withVDDResolution(doc, 1000+i, 700, 60); err != nil {
+			t.Fatal(err)
+		}
+		if moved, ok := withVDDResolutionUsed(doc, 1180, 820); ok {
+			doc = moved
+		}
+	}
+	var s vddSettings
+	if err := xml.Unmarshal([]byte(doc), &s); err != nil {
+		t.Fatalf("result is not valid XML: %v\n%s", err, doc)
+	}
+	last := s.Resolutions[len(s.Resolutions)-1]
+	if last.Width != 1180 || last.Height != 820 || len(s.Resolutions) != vddKeep+1 {
+		t.Fatalf("resolutions = %+v, want 800x600 plus %d with 1180x820 newest", s.Resolutions, vddKeep)
+	}
+	if _, ok := withVDDResolutionUsed(doc, 800, 600); ok {
+		t.Fatal("moved a resolution spareglass did not add")
 	}
 }
 
