@@ -45,7 +45,7 @@ func NewPipeline(displayID string, fps, bitrateKbps int) (Pipeline, error) {
 	}
 	args = append(args, encoder...)
 	args = append(args,
-		"-pix_fmt", "nv12",
+		"-pix_fmt", "nv12", "-r", strconv.Itoa(fps),
 		"-b:v", kbps, "-maxrate", kbps, "-bufsize", kbps,
 		"-g", strconv.Itoa(fps), "-bf", "0",
 		"-bsf:v", "dump_extra=freq=keyframe", // SPS/PPS before every IDR
