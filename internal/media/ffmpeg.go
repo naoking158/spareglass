@@ -48,7 +48,8 @@ func bundledFFmpeg(dir string) (string, bool) {
 }
 
 // FFmpegHasEncoder reports whether ffmpeg lists the named encoder. The list
-// is read once per ffmpeg executable; a failed read is retried next time.
+// is kept per ffmpeg path (replacing ffmpeg at the same path needs a
+// restart); a failed read is retried next time.
 func FFmpegHasEncoder(name string) bool {
 	p, err := FFmpegPath()
 	if err != nil {
