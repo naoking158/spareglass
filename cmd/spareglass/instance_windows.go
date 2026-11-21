@@ -12,7 +12,7 @@ import (
 // shared by every user session.
 const instanceName = `Global\spareglass-serve`
 
-var errAlreadyRunning = errors.New("spareglass is already running in another window; use that one, or close it and start again")
+var errAlreadyRunning = errors.New("spareglass is already running on this computer (in another window or for another user); use that one, or stop it and start again")
 
 // claimInstance makes sure no other spareglass host runs on this computer.
 // A second one would detach the first one's display when it starts. The
@@ -23,8 +23,12 @@ func claimInstance() (release func(), err error) {
 		return nil, err
 	}
 	h, err := windows.CreateMutex(nil, false, name)
-	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+	switch {
+	case errors.Is(err, windows.ERROR_ALREADY_EXISTS):
 		_ = windows.CloseHandle(h)
+		return nil, errAlreadyRunning
+	case errors.Is(err, windows.ERROR_ACCESS_DENIED):
+		// Another user, or an elevated spareglass, holds it.
 		return nil, errAlreadyRunning
 	}
 	if err != nil {

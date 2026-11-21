@@ -109,6 +109,7 @@ jobs:
           go build -o spareglass.exe ./cmd/spareglass
           ./spareglass.exe serve -addr 127.0.0.1:0 </dev/null >first.log 2>&1 &
           first=$!
+          trap 'kill "$first" 2>/dev/null || true; echo "--- first host"; cat first.log' EXIT
           for _ in $(seq 50); do grep -q "spareglass is running" first.log && break; sleep 0.2; done
           grep -q "spareglass is running" first.log
           if ./spareglass.exe serve -addr 127.0.0.1:0 </dev/null >second.log 2>&1; then
@@ -116,7 +117,6 @@ jobs:
           fi
           cat second.log
           grep -q "already running" second.log
-          kill "$first"
 
   windows-vdd:
     permissions:
