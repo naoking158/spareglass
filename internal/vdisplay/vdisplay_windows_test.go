@@ -57,25 +57,25 @@ func TestVDDOpensManySizes(t *testing.T) {
 	if os.Getenv("SPAREGLASS_VDD_TEST") == "" {
 		t.Skip("set SPAREGLASS_VDD_TEST=1 on a machine with the Virtual Display Driver")
 	}
-	p := Default().(*vddProvider)
+	p := Default()
 	defer p.CloseAll()
 	for i := range 12 {
 		w, h := 1000+i*10, 500
 		d, err := p.Open(Spec{Name: "spareglass 1", Width: w, Height: h, RefreshHz: 60})
 		if err != nil {
-			t.Fatalf("Open %dx%d after %d reloads: %v", w, h, p.reloads, err)
+			t.Fatalf("Open %dx%d after %d reloads: %v", w, h, vddReloads(), err)
 		}
 		got := d.Spec()
 		if m, err := windisplay.Find(d.ID()); err != nil || !m.Attached || m.Width != got.Width || m.Height != got.Height {
 			t.Fatalf("monitor after Open %dx%d: %+v, %v", w, h, m, err)
 		}
-		t.Logf("asked %dx%d, got %dx%d (%d reloads)", w, h, got.Width, got.Height, p.reloads)
+		t.Logf("asked %dx%d, got %dx%d (%d reloads since boot)", w, h, got.Width, got.Height, vddReloads())
 		if err := d.Close(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if p.reloads > maxReloads {
-		t.Fatalf("%d reloads, over %d", p.reloads, maxReloads)
+	if n := vddReloads(); n > maxReloads {
+		t.Fatalf("%d reloads since boot, over %d", n, maxReloads)
 	}
 }
 
