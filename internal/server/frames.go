@@ -4,7 +4,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/interceptor"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
@@ -21,7 +20,7 @@ const (
 )
 
 // zeroPlayoutDelay asks the browser to show each frame as soon as it is decoded.
-var zeroPlayoutDelay, _ = rtp.PlayoutDelayExtension{}.Marshal()
+var zeroPlayoutDelay = []byte{0, 0, 0}
 
 // newAPI builds a Pion API that can negotiate the playout-delay extension.
 func newAPI() (*webrtc.API, error) {
@@ -32,11 +31,7 @@ func newAPI() (*webrtc.API, error) {
 	if err := m.RegisterHeaderExtension(webrtc.RTPHeaderExtensionCapability{URI: playoutDelayURI}, webrtc.RTPCodecTypeVideo); err != nil {
 		return nil, err
 	}
-	ir := &interceptor.Registry{}
-	if err := webrtc.RegisterDefaultInterceptors(m, ir); err != nil {
-		return nil, err
-	}
-	return webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(ir)), nil
+	return webrtc.NewAPI(webrtc.WithMediaEngine(m)), nil
 }
 
 // frameWriter sends H.264 access units on an RTP track. Each frame's RTP

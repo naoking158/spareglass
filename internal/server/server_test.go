@@ -258,12 +258,12 @@ func TestStreamsVirtualDisplay(t *testing.T) {
 
 func streamOverWebRTC(t *testing.T, p vdisplay.Provider, f media.Factory, width, height int, wait time.Duration) {
 	t.Helper()
-	mime, pkts := receiveVideo(t, nil, p, f, width, height, 30, wait)
-	if mime != webrtc.MimeTypeH264 {
-		t.Fatalf("codec = %s, want H264", mime)
+	r := receiveVideo(t, nil, p, f, width, height, 30, wait)
+	if r.mime != webrtc.MimeTypeH264 {
+		t.Fatalf("codec = %s, want H264", r.mime)
 	}
 	sawStart := false
-	for _, pkt := range pkts {
+	for _, pkt := range r.pkts {
 		if len(pkt.Payload) > 0 {
 			typ := pkt.Payload[0] & 0x1f
 			if typ == 7 || typ == 24 || typ == 28 || typ == 5 {
@@ -272,14 +272,21 @@ func streamOverWebRTC(t *testing.T, p vdisplay.Provider, f media.Factory, width,
 		}
 	}
 	if !sawStart {
-		t.Fatalf("received %d packets, no keyframe/SPS", len(pkts))
+		t.Fatalf("received %d packets, no keyframe/SPS", len(r.pkts))
 	}
+}
+
+// received is what receiveVideo saw on the video track.
+type received struct {
+	mime string
+	exts []webrtc.RTPHeaderExtensionParameter
+	pkts []*rtp.Packet
 }
 
 // receiveVideo connects a browser-like peer (built from api, or Pion's
 // defaults when nil), says hello at width x height and returns the first n
 // RTP packets of the video track.
-func receiveVideo(t *testing.T, api *webrtc.API, p vdisplay.Provider, f media.Factory, width, height, n int, wait time.Duration) (string, []*rtp.Packet) {
+func receiveVideo(t *testing.T, api *webrtc.API, p vdisplay.Provider, f media.Factory, width, height, n int, wait time.Duration) received {
 	t.Helper()
 	ts := newTestServer(t, p, true, f)
 	auth := pairDevice(t, ts.URL)
@@ -300,13 +307,9 @@ func receiveVideo(t *testing.T, api *webrtc.API, p vdisplay.Provider, f media.Fa
 		_ = dc.SendText(string(b))
 	})
 
-	type result struct {
-		mime string
-		pkts []*rtp.Packet
-	}
-	done := make(chan result, 1)
-	pc.OnTrack(func(tr *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-		r := result{mime: tr.Codec().MimeType}
+	done := make(chan received, 1)
+	pc.OnTrack(func(tr *webrtc.TrackRemote, rcv *webrtc.RTPReceiver) {
+		r := received{mime: tr.Codec().MimeType, exts: rcv.GetParameters().HeaderExtensions}
 		for len(r.pkts) < n {
 			pkt, _, err := tr.ReadRTP()
 			if err != nil {
@@ -336,11 +339,11 @@ func receiveVideo(t *testing.T, api *webrtc.API, p vdisplay.Provider, f media.Fa
 		if len(r.pkts) < n {
 			t.Fatalf("received %d packets, want %d", len(r.pkts), n)
 		}
-		return r.mime, r.pkts
+		return r
 	case <-time.After(wait):
 		t.Fatal("no video received")
 	}
-	return "", nil
+	return received{}
 }
 
 // timedPipeline emits one-NAL access units whose second byte is the frame
@@ -378,7 +381,7 @@ func TestRTPTimestampsFollowFrameTimes(t *testing.T) {
 	factory := func(string, int, int) (media.Pipeline, error) {
 		return &timedPipeline{durations: durations, stop: make(chan struct{})}, nil
 	}
-	_, pkts := receiveVideo(t, nil, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, factory, 640, 480, 20, 15*time.Second)
+	pkts := receiveVideo(t, nil, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, factory, 640, 480, 20, 15*time.Second).pkts
 	compared := 0
 	for i := 1; i < len(pkts); i++ {
 		prev, cur := pkts[i-1], pkts[i]
@@ -517,27 +520,29 @@ func TestFallbackSizesStayTallEnough(t *testing.T) {
 }
 
 // TestZeroPlayoutDelay checks that a browser offering the playout-delay
-// extension is told to show frames as soon as they are decoded; without it,
-// Chrome holds frames of a stream that only changes now and then.
+// extension gets min=max=0 on every packet.
 func TestZeroPlayoutDelay(t *testing.T) {
-	api, err := newAPI() // registers the extension, as Chrome's offer does
+	api, err := newAPI()
 	if err != nil {
 		t.Fatal(err)
 	}
 	factory := func(string, int, int) (media.Pipeline, error) {
 		return &timedPipeline{durations: []time.Duration{16 * time.Millisecond}, stop: make(chan struct{})}, nil
 	}
-	_, pkts := receiveVideo(t, api, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, factory, 640, 480, 5, 15*time.Second)
-	for _, pkt := range pkts {
-		found := false
-		for _, id := range pkt.Header.GetExtensionIDs() {
-			var pd rtp.PlayoutDelayExtension
-			if pd.Unmarshal(pkt.Header.GetExtension(id)) == nil && len(pkt.Header.GetExtension(id)) == 3 {
-				found = pd.MinDelay == 0 && pd.MaxDelay == 0
-			}
+	r := receiveVideo(t, api, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, factory, 640, 480, 5, 15*time.Second)
+	var id uint8
+	for _, e := range r.exts {
+		if e.URI == playoutDelayURI {
+			id = uint8(e.ID)
 		}
-		if !found {
-			t.Fatalf("packet %d has no zero playout-delay extension (ids %v)", pkt.SequenceNumber, pkt.Header.GetExtensionIDs())
+	}
+	if id == 0 {
+		t.Fatal("playout-delay was not negotiated")
+	}
+	for _, pkt := range r.pkts {
+		var pd rtp.PlayoutDelayExtension
+		if err := pd.Unmarshal(pkt.Header.GetExtension(id)); err != nil || pd.MinDelay != 0 || pd.MaxDelay != 0 {
+			t.Fatalf("packet %d: playout-delay %+v (err %v), want min=max=0", pkt.SequenceNumber, pd, err)
 		}
 	}
 }
