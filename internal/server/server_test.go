@@ -424,7 +424,7 @@ func TestShortLandscapeScreenGetsDisplay(t *testing.T) {
 	rp := &shortRefusingProvider{fakeProvider{opened: make(chan vdisplay.Spec, 1)}}
 	m := NewManager(config.Default(), rp, func(string, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s := &Session{m: m, slot: 0, log: m.log}
-	s.ensureDisplay(controlMsg{Type: "hello", Width: 915, Height: 412, DPR: 2.625})
+	s.ensureDisplay(controlMsg{Type: "hello", Width: 915, Height: 412, DPR: 1})
 	select {
 	case spec := <-rp.opened:
 		if got, want := float64(spec.Width)/float64(spec.Height), 915.0/412.0; math.Abs(got-want) > 0.01 {
@@ -432,5 +432,13 @@ func TestShortLandscapeScreenGetsDisplay(t *testing.T) {
 		}
 	default:
 		t.Fatal("no display opened for a 915x412 screen")
+	}
+}
+
+func TestFallbackSizesStayTallEnough(t *testing.T) {
+	for _, size := range fallbackSizes(2000, 420) {
+		if size[1] < minLandscapeHeight {
+			t.Errorf("fallbackSizes(2000, 420) offers %v, which macOS refuses", size)
+		}
 	}
 }

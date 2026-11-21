@@ -401,6 +401,9 @@ func fallbackSizes(w, h int) [][2]int {
 		}
 		fw := int(float64(w)*scale) &^ 3
 		fh := int(float64(h)*scale) &^ 1
+		if w >= h && fh < minLandscapeHeight {
+			continue
+		}
 		if last := sizes[len(sizes)-1]; last != [2]int{fw, fh} {
 			sizes = append(sizes, [2]int{fw, fh})
 		}
