@@ -375,11 +375,20 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
+// minLandscapeHeight is the shortest landscape display macOS accepts; a
+// shorter one comes up at 800x600 instead.
+const minLandscapeHeight = 450
+
 // fallbackSizes returns the requested size followed by smaller sizes with
 // the same aspect ratio that fit 2560x1440 and 1920x1080, without repeats.
+// A landscape size shorter than minLandscapeHeight is first scaled up to it.
 // Every size is aligned: width to a multiple of 4, height to even. macOS
 // screen capture shears the picture when the width is not a multiple of 4.
 func fallbackSizes(w, h int) [][2]int {
+	if w >= h && h < minLandscapeHeight {
+		w = int(math.Ceil(float64(w) * minLandscapeHeight / float64(h)))
+		h = minLandscapeHeight
+	}
 	sizes := [][2]int{{w &^ 3, h &^ 1}}
 	for _, box := range [][2]int{{2560, 1440}, {1920, 1080}} {
 		bw, bh := box[0], box[1]
