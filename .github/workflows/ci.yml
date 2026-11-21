@@ -29,7 +29,18 @@ jobs:
       - run: go test -race ./...
       - run: go build ./cmd/spareglass
 
+  zizmor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          version: 1.32.0
+          advanced-security: false
+
   package:
-    uses: ./.github/workflows/package.yml
+    uses: $/.github/workflows/package.yml
     with:
       snapshot: true

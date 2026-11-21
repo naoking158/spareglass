@@ -9,6 +9,6 @@ permissions:
 
 jobs:
   package:
-    uses: ./.github/workflows/package.yml
+    uses: $/.github/workflows/package.yml
     with:
       snapshot: false
