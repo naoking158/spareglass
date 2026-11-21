@@ -258,7 +258,7 @@ func TestStreamsVirtualDisplay(t *testing.T) {
 
 func streamOverWebRTC(t *testing.T, p vdisplay.Provider, f media.Factory, width, height int, wait time.Duration) {
 	t.Helper()
-	mime, pkts := receiveVideo(t, p, f, width, height, 30, wait)
+	mime, pkts := receiveVideo(t, nil, p, f, width, height, 30, wait)
 	if mime != webrtc.MimeTypeH264 {
 		t.Fatalf("codec = %s, want H264", mime)
 	}
@@ -276,14 +276,18 @@ func streamOverWebRTC(t *testing.T, p vdisplay.Provider, f media.Factory, width,
 	}
 }
 
-// receiveVideo connects a browser-like peer, says hello at width x height
-// and returns the first n RTP packets of the video track.
-func receiveVideo(t *testing.T, p vdisplay.Provider, f media.Factory, width, height, n int, wait time.Duration) (string, []*rtp.Packet) {
+// receiveVideo connects a browser-like peer (built from api, or Pion's
+// defaults when nil), says hello at width x height and returns the first n
+// RTP packets of the video track.
+func receiveVideo(t *testing.T, api *webrtc.API, p vdisplay.Provider, f media.Factory, width, height, n int, wait time.Duration) (string, []*rtp.Packet) {
 	t.Helper()
 	ts := newTestServer(t, p, true, f)
 	auth := pairDevice(t, ts.URL)
 
-	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if api == nil {
+		api = webrtc.NewAPI()
+	}
+	pc, err := api.NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +378,7 @@ func TestRTPTimestampsFollowFrameTimes(t *testing.T) {
 	factory := func(string, int, int) (media.Pipeline, error) {
 		return &timedPipeline{durations: durations, stop: make(chan struct{})}, nil
 	}
-	_, pkts := receiveVideo(t, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, factory, 640, 480, 20, 15*time.Second)
+	_, pkts := receiveVideo(t, nil, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, factory, 640, 480, 20, 15*time.Second)
 	compared := 0
 	for i := 1; i < len(pkts); i++ {
 		prev, cur := pkts[i-1], pkts[i]
@@ -508,6 +512,32 @@ func TestFallbackSizesStayTallEnough(t *testing.T) {
 	for _, size := range fallbackSizes(2000, 420) {
 		if size[1] < minLandscapeHeight {
 			t.Errorf("fallbackSizes(2000, 420) offers %v, which macOS refuses", size)
+		}
+	}
+}
+
+// TestZeroPlayoutDelay checks that a browser offering the playout-delay
+// extension is told to show frames as soon as they are decoded; without it,
+// Chrome holds frames of a stream that only changes now and then.
+func TestZeroPlayoutDelay(t *testing.T) {
+	api, err := newAPI() // registers the extension, as Chrome's offer does
+	if err != nil {
+		t.Fatal(err)
+	}
+	factory := func(string, int, int) (media.Pipeline, error) {
+		return &timedPipeline{durations: []time.Duration{16 * time.Millisecond}, stop: make(chan struct{})}, nil
+	}
+	_, pkts := receiveVideo(t, api, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, factory, 640, 480, 5, 15*time.Second)
+	for _, pkt := range pkts {
+		found := false
+		for _, id := range pkt.Header.GetExtensionIDs() {
+			var pd rtp.PlayoutDelayExtension
+			if pd.Unmarshal(pkt.Header.GetExtension(id)) == nil && len(pkt.Header.GetExtension(id)) == 3 {
+				found = pd.MinDelay == 0 && pd.MaxDelay == 0
+			}
+		}
+		if !found {
+			t.Fatalf("packet %d has no zero playout-delay extension (ids %v)", pkt.SequenceNumber, pkt.Header.GetExtensionIDs())
 		}
 	}
 }
