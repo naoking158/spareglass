@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +50,45 @@ func TestVDDDisplayStreams(t *testing.T) {
 			t.Fatalf("monitor still attached after Close: %+v", m)
 		}
 	}
+}
+
+// TestVDDRecoversFromTooManyModes lists more resolutions than the driver's
+// monitor survives, as earlier spareglass versions did, and expects Open to
+// prune them and bring the monitor back.
+func TestVDDRecoversFromTooManyModes(t *testing.T) {
+	if os.Getenv("SPAREGLASS_VDD_TEST") == "" {
+		t.Skip("set SPAREGLASS_VDD_TEST=1 on a machine with the Virtual Display Driver")
+	}
+	path := vddSettingsPath()
+	orig, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crowded := string(orig)
+	for i := range 8 {
+		entry := fmt.Sprintf("%s<resolution><width>%d</width><height>500</height><refresh_rate>60</refresh_rate></resolution>\n</resolutions>", vddMarker, 900+i*10)
+		crowded = strings.Replace(crowded, "</resolutions>", entry, 1)
+	}
+	if err := os.WriteFile(path, []byte(crowded), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := vddCommand("RELOAD_DRIVER"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Second)
+	_, err = vddDevice()
+	t.Logf("monitor with %d modes listed: %v", vddModes(crowded), err)
+
+	p := Default()
+	defer p.CloseAll()
+	d, err := p.Open(Spec{Name: "spareglass 1", Width: 1180, Height: 820, RefreshHz: 60})
+	if err != nil {
+		t.Fatalf("Open after too many modes: %v", err)
+	}
+	if m, err := windisplay.Find(d.ID()); err != nil || !m.Attached || m.Width != 1180 {
+		t.Fatalf("monitor after Open: %+v, %v", m, err)
+	}
+	_ = d.Close()
 }
 
 var errEnough = errors.New("enough")
