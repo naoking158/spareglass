@@ -65,9 +65,15 @@ static void encoderOutput(void *refCon, void *frameRefCon, OSStatus status, VTEn
 	if (key) appendParameterSets(out, fmt);
 
 	CMBlockBufferRef bb = CMSampleBufferGetDataBuffer(sb);
-	size_t total = 0;
+	size_t total = CMBlockBufferGetDataLength(bb), contiguous = 0;
 	char *p = NULL;
-	if (CMBlockBufferGetDataPointer(bb, 0, NULL, &total, &p) != noErr) return;
+	if (CMBlockBufferGetDataPointer(bb, 0, &contiguous, NULL, &p) != noErr) return;
+	NSMutableData *copy = nil;
+	if (contiguous < total) {
+		copy = [NSMutableData dataWithLength:total];
+		if (CMBlockBufferCopyDataBytes(bb, 0, total, copy.mutableBytes) != noErr) return;
+		p = copy.mutableBytes;
+	}
 	size_t off = 0;
 	while (off + lenSize <= total) {
 		uint32_t n = 0;
@@ -112,7 +118,6 @@ sgEncoder *sgEncoderNew(int width, int height, int fps, int kbps, uintptr_t hand
 	setProp(s, kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse, &perr);
 	setProp(s, kVTCompressionPropertyKey_ExpectedFrameRate, (__bridge CFNumberRef)@(fps), &perr);
 	setProp(s, kVTCompressionPropertyKey_AverageBitRate, (__bridge CFNumberRef)@(kbps * 1000), &perr);
-	// Same one-second window as ffmpeg's -maxrate/-bufsize, so frame sizes match.
 	setProp(s, kVTCompressionPropertyKey_DataRateLimits, (__bridge CFArrayRef)@[@(kbps * 1000 / 8), @1.0], &perr);
 	setProp(s, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, (__bridge CFNumberRef)@10.0, &perr);
 	setProp(s, kVTCompressionPropertyKey_ColorPrimaries, kCVImageBufferColorPrimaries_ITU_R_709_2, &perr);
@@ -244,6 +249,8 @@ static SCDisplay *findDisplay(uint32_t displayID, NSString **err) {
 	return nil;
 }
 
+static void stopCapture(SGCapture *c);
+
 sgCapture *sgCaptureStart(uint32_t displayID, int fps, int kbps, uintptr_t handle, char **err) {
 	@autoreleasepool {
 		NSString *e = nil;
@@ -290,7 +297,7 @@ sgCapture *sgCaptureStart(uint32_t displayID, int fps, int kbps, uintptr_t handl
 		if (dispatch_semaphore_wait(started, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)) != 0 || startErr) {
 			*err = copyCString([NSString stringWithFormat:@"start screen capture: %@",
 			                                               startErr ? startErr.localizedDescription : @"timed out"]);
-			sgEncoderFree(c.encoder);
+			stopCapture(c);
 			return NULL;
 		}
 		sgCapture *out = calloc(1, sizeof(sgCapture));
@@ -310,18 +317,24 @@ void sgCaptureStop(sgCapture *cap) {
 	@autoreleasepool {
 		SGCapture *c = (__bridge_transfer SGCapture *)cap->obj;
 		free(cap);
-		dispatch_semaphore_t stopped = dispatch_semaphore_create(0);
-		[c.stream stopCaptureWithCompletionHandler:^(NSError *error) {
-			dispatch_semaphore_signal(stopped);
-		}];
-		dispatch_semaphore_wait(stopped, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
-		// Wait for any sample handler or keyframe request already queued.
-		dispatch_sync(c.queue, ^{
-			c.stopped = YES;
-		});
-		sgEncoderFree(c.encoder);
-		c.encoder = NULL;
-		if (c.last) CVPixelBufferRelease(c.last);
-		c.last = NULL;
+		stopCapture(c);
 	}
+}
+
+// stopCapture stops the stream, waits for queued sample handlers, then frees
+// the encoder, so no callback reaches a freed encoder or a deleted handle.
+static void stopCapture(SGCapture *c) {
+	dispatch_semaphore_t stopped = dispatch_semaphore_create(0);
+	[c.stream stopCaptureWithCompletionHandler:^(NSError *error) {
+		dispatch_semaphore_signal(stopped);
+	}];
+	dispatch_semaphore_wait(stopped, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
+	// Wait for any sample handler or keyframe request already queued.
+	dispatch_sync(c.queue, ^{
+		c.stopped = YES;
+	});
+	sgEncoderFree(c.encoder);
+	c.encoder = NULL;
+	if (c.last) CVPixelBufferRelease(c.last);
+	c.last = NULL;
 }

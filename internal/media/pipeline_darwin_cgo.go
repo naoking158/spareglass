@@ -85,6 +85,9 @@ type nativePipeline struct {
 }
 
 func (p *nativePipeline) Run(ctx context.Context, out func(EncodedFrame) error) error {
+	if p.isClosed() {
+		return nil
+	}
 	s := newSink()
 	h := cgo.NewHandle(s)
 	defer h.Delete()
@@ -114,6 +117,9 @@ func (p *nativePipeline) Run(ctx context.Context, out func(EncodedFrame) error) 
 		case <-p.stop:
 			return nil
 		case err := <-s.errs:
+			if p.isClosed() {
+				return nil
+			}
 			return err
 		case f := <-s.frames:
 			if s.dropped.Swap(false) {
@@ -129,6 +135,12 @@ func (p *nativePipeline) Run(ctx context.Context, out func(EncodedFrame) error) 
 			}
 		}
 	}
+}
+
+func (p *nativePipeline) isClosed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closed
 }
 
 func (p *nativePipeline) RequestKeyframe() {

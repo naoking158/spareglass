@@ -3,6 +3,7 @@
 package media
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -36,5 +37,18 @@ func TestEncoderEmitsEachFrameAtOnce(t *testing.T) {
 		if types := nalTypes(f.data); len(types) == 0 || types[len(types)-1] != 1 {
 			t.Fatalf("frame %d: NAL types %v, want a non-IDR slice", i+1, types)
 		}
+	}
+}
+
+// TestRunAfterCloseIsQuiet: a pipeline closed before Run (the display was
+// recreated meanwhile) must not start capturing or report an error.
+func TestRunAfterCloseIsQuiet(t *testing.T) {
+	p, err := NewPipeline("4294967295", 60, 8000) // no such display
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = p.Close()
+	if err := p.Run(context.Background(), func(EncodedFrame) error { return nil }); err != nil {
+		t.Fatalf("Run after Close = %v, want nil", err)
 	}
 }
