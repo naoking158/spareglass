@@ -9,6 +9,9 @@ import (
 
 func TestSecondInstanceIsRefused(t *testing.T) {
 	release, err := claimInstance()
+	if errors.Is(err, errAlreadyRunning) {
+		t.Skip("a spareglass host is running on this computer")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
