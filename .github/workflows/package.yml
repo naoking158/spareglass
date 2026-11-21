@@ -202,7 +202,7 @@ jobs:
           try { [IO.File]::Open("C:\VirtualDisplayDriver\vdd_settings.xml", "Open", "ReadWrite").Close(); "settings: writable" } catch { "settings: $_" }
           try { $p = [IO.Pipes.NamedPipeClientStream]::new(".", "MTTVirtualDisplayPipe", "InOut"); $p.Connect(5000); $p.Close(); "pipe: connected" } catch { "pipe: $_" }
           $env:SPAREGLASS_VDD_TEST = "1"
-          & C:\sgcheck\vdisplay.test.exe -test.v -test.run TestVDDDisplayStreams 2>&1
+          & C:\sgcheck\vdisplay.test.exe "-test.v" "-test.run=TestVDDDisplayStreams" 2>&1
           '@ | Set-Content "$dir\check.ps1"
           icacls $dir /grant "*S-1-1-0:(OI)(CI)F" | Out-Null
 
