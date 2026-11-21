@@ -82,8 +82,10 @@ archives:
       - src: third_party/windows/ffmpeg-LICENSE.txt
         strip_parent: true
       - src: third_party/windows/VirtualDisplayDriver-setup.exe
+        dst: driver
         strip_parent: true
       - src: third_party/windows/VirtualDisplayDriver-LICENSE.txt
+        dst: driver
         strip_parent: true
       - src: packaging/windows/HOW-TO-USE.txt
         strip_parent: true

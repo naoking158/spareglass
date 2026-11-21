@@ -39,6 +39,7 @@ const usage = `spareglass - use any browser as an extra display
 Usage:
   spareglass [serve] [flags]   start the host (default)
   spareglass doctor            check what works on this machine
+  spareglass install-driver    install the bundled virtual display driver (Windows)
   spareglass config path       print the config file location
   spareglass config show       print the effective config
   spareglass config init       write a config file with defaults
@@ -63,6 +64,8 @@ func main() {
 		err = runServe(args)
 	case "doctor":
 		err = doctor.Run(os.Stdout, version, vdisplay.Default())
+	case "install-driver":
+		err = runInstallDriver()
 	case "config":
 		err = runConfig(args)
 	case "devices":
@@ -124,6 +127,9 @@ func runServe(args []string) error {
 	defer release()
 
 	provider := vdisplay.Default()
+	if !*testPattern {
+		installDriverIfMissing(provider)
+	}
 	if err := provider.Available(); err != nil {
 		log.Warn("virtual displays are not available; clients can connect but will not get a screen yet",
 			"provider", provider.Name(), "err", err)

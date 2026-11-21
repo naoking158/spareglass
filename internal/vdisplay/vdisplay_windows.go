@@ -19,7 +19,7 @@ import (
 
 // Default returns the Windows provider, which drives the Virtual Display
 // Driver from github.com/VirtualDrivers/Virtual-Display-Driver (an IddCx
-// driver the user installs once).
+// driver installed once with InstallDriver).
 //
 // The driver offers only the resolutions listed in its vdd_settings.xml, so
 // Open adds the requested size there and sends RELOAD_DRIVER over the
@@ -37,7 +37,9 @@ const (
 )
 
 // ErrNoDriver means the Virtual Display Driver is not installed.
-var ErrNoDriver = fmt.Errorf("%w: the Virtual Display Driver is not installed: run VirtualDisplayDriver-setup.exe from the spareglass folder (see HOW-TO-USE.txt)", ErrUnavailable)
+var ErrNoDriver = fmt.Errorf("%w: the Virtual Display Driver is not installed: start spareglass.exe from the spareglass folder to install it (see HOW-TO-USE.txt)", ErrUnavailable)
+
+var errNoMonitor = fmt.Errorf("%w: the Virtual Display Driver is installed but its monitor is missing: restart Windows, or uninstall \"Virtual Display Driver\" in Settings > Apps and start spareglass.exe again (see HOW-TO-USE.txt)", ErrUnavailable)
 
 type vddProvider struct {
 	mu   sync.Mutex
@@ -158,7 +160,7 @@ func vddDevice() (string, error) {
 			return m.Device, nil
 		}
 	}
-	return "", ErrNoDriver
+	return "", errNoMonitor
 }
 
 // addVDDMode lists width×height in the driver settings, reloads the driver

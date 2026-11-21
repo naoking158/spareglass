@@ -119,6 +119,18 @@ jobs:
           fi
           cat second.log
           grep -q "already running" second.log
+      - name: A host started without a console leaves the driver setup alone
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p driver
+          cp spareglass.exe driver/VirtualDisplayDriver-setup.exe
+          ./spareglass.exe serve -addr 127.0.0.1:0 </dev/null >serve.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; cat serve.log' EXIT
+          for _ in $(seq 50); do grep -q "spareglass is running" serve.log && break; sleep 0.2; done
+          grep -q "spareglass is running" serve.log
+          ! grep -q "Installing the Virtual Display Driver" serve.log
 
   windows-vdd:
     permissions:
@@ -141,18 +153,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: packaging/windows/fetch-vdd.sh "$RUNNER_TEMP/vdd"
-      - name: Install the Virtual Display Driver
+      - name: Install the Virtual Display Driver through spareglass
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $f = Join-Path $env:RUNNER_TEMP "vdd\VirtualDisplayDriver-setup.exe"
+          $dir = Join-Path $env:RUNNER_TEMP "sg"
+          New-Item -ItemType Directory -Force "$dir\driver" | Out-Null
+          go build -o "$dir\spareglass.exe" ./cmd/spareglass
+          if ($LASTEXITCODE) { exit 1 }
+          Copy-Item (Join-Path $env:RUNNER_TEMP "vdd\VirtualDisplayDriver-setup.exe") "$dir\driver\"
 
           # Windows asks "Would you like to install this device software?" even
           # for the signed driver; on this throwaway VM the step clicks Install.
           Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
           Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Mouse { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y); [DllImport("user32.dll")] public static extern void mouse_event(uint f, int dx, int dy, uint d, UIntPtr e); }'
-          $p = Start-Process -FilePath $f -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/LOG=$env:RUNNER_TEMP\vdd-install.log" -PassThru
+          $p = Start-Process -FilePath "$dir\spareglass.exe" -ArgumentList "install-driver" -RedirectStandardOutput "$dir\out.txt" -RedirectStandardError "$dir\err.txt" -PassThru
+          $null = $p.Handle
           $clicked = 0
           $deadline = (Get-Date).AddSeconds(240)
           while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
@@ -174,7 +189,7 @@ jobs:
             Start-Sleep -Milliseconds 500
           }
           if (-not $p.HasExited) {
-            "!! installer still running after 240 s"
+            "!! install-driver still running after 240 s"
             Add-Type -AssemblyName System.Windows.Forms, System.Drawing
             $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
             $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
@@ -182,9 +197,14 @@ jobs:
             $bmp.Save("$env:RUNNER_TEMP\hang.png")
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           }
-          Start-Sleep -Seconds 10
-          "--- install log (last lines)"; Get-Content "$env:RUNNER_TEMP\vdd-install.log" -ErrorAction SilentlyContinue | Select-Object -Last 12
-          "--- settings file"; Test-Path C:\VirtualDisplayDriver\vdd_settings.xml
+          $p.WaitForExit()
+          "--- spareglass install-driver (exit $($p.ExitCode))"; Get-Content "$dir\out.txt", "$dir\err.txt"
+          $log = Join-Path ([IO.Path]::GetTempPath()) "spareglass-driver-setup.log"
+          "--- setup log: installed files and run entries"; Select-String -Path $log -Pattern "Dest filename:|Filename:|Parameters:" | ForEach-Object Line
+          if ($p.ExitCode -ne 0) { exit 1 }
+          if (-not (Test-Path C:\VirtualDisplayDriver\MttVDD.dll)) { "driver files are missing"; exit 1 }
+          if (Test-Path C:\VirtualDisplayDriver\ControlApp\VDDControl.exe) { "VDD Control was installed"; exit 1 }
+          if (Get-Process VDDControl -ErrorAction SilentlyContinue) { "VDD Control is running"; exit 1 }
       - name: Virtual display as a standard (non-admin) user
         shell: pwsh
         run: |
@@ -293,7 +313,7 @@ jobs:
         include:
           - os: windows-latest
             archive: windows_x64
-            files: spareglass.exe ffmpeg.exe VirtualDisplayDriver-setup.exe HOW-TO-USE.txt
+            files: spareglass.exe ffmpeg.exe driver/VirtualDisplayDriver-setup.exe HOW-TO-USE.txt
           - os: macos-latest
             archive: mac
             files: spareglass ffmpeg "Start spareglass.command" HOW-TO-USE.txt
@@ -310,6 +330,7 @@ jobs:
           unzip -q ./*_${{ matrix.archive }}.zip -d unpacked
           cd unpacked/*/
           for f in ${{ matrix.files }}; do test -e "$f" || { echo "missing $f"; exit 1; }; done
+          if compgen -G "*setup*" >/dev/null; then echo "an installer sits next to spareglass"; exit 1; fi
           ./spareglass doctor | tee doctor.txt
           grep "Capture/encode" doctor.txt | grep -q unpacked
           ! grep "Capture/encode" doctor.txt | grep -q "NOT AVAILABLE"

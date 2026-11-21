@@ -4,7 +4,7 @@
 // Each OS has its own implementation, selected by build tags:
 //
 //	darwin   CGVirtualDisplay (private CoreGraphics API) via go-macos/virtualdisplay
-//	windows  VirtualDrivers/Virtual-Display-Driver (IddCx), installed by the user
+//	windows  VirtualDrivers/Virtual-Display-Driver (IddCx), installed once from the release archive
 //	linux    xdg-desktop-portal ScreenCast VIRTUAL / Mutter RecordVirtual (planned)
 package vdisplay
 
