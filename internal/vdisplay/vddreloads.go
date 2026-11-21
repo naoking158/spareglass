@@ -5,20 +5,21 @@ import (
 	"time"
 )
 
-// reloadsSince returns how many reloads the record counts for the system
-// booted at boot. A record from an earlier boot counts none.
-func reloadsSince(record string, boot time.Time) int {
-	var unix int64
+// reloadsSince returns how many reloads the record counts for the current
+// boot, given how long the system has been up. A record written later in
+// uptime than now comes from an earlier boot and counts none.
+func reloadsSince(record string, uptime time.Duration) int {
+	var ms int64
 	var n int
-	if _, err := fmt.Sscanf(record, "boot %d reloads %d", &unix, &n); err != nil {
+	if _, err := fmt.Sscanf(record, "uptime_ms %d reloads %d", &ms, &n); err != nil {
 		return 0
 	}
-	if d := boot.Sub(time.Unix(unix, 0)); d < -time.Minute || d > time.Minute {
+	if time.Duration(ms)*time.Millisecond > uptime {
 		return 0
 	}
 	return n
 }
 
-func reloadRecord(boot time.Time, n int) string {
-	return fmt.Sprintf("boot %d reloads %d\n", boot.Unix(), n)
+func reloadRecord(uptime time.Duration, n int) string {
+	return fmt.Sprintf("uptime_ms %d reloads %d\n", uptime.Milliseconds(), n)
 }

@@ -288,18 +288,14 @@ func vddReloads() int {
 	if err != nil {
 		return 0
 	}
-	return reloadsSince(string(b), bootTime())
+	return reloadsSince(string(b), windows.DurationSinceBoot())
 }
 
 func setVDDReloads(n int) error {
-	if err := os.WriteFile(vddReloadsPath(), []byte(reloadRecord(bootTime(), n)), 0o666); err != nil {
+	if err := os.WriteFile(vddReloadsPath(), []byte(reloadRecord(windows.DurationSinceBoot(), n)), 0o666); err != nil {
 		return fmt.Errorf("record the driver reload: %w", err)
 	}
 	return nil
-}
-
-func bootTime() time.Time {
-	return time.Now().Add(-windows.DurationSinceBoot())
 }
 
 // vddInstalled reports whether the driver's settings file exists, which

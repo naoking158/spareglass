@@ -6,15 +6,14 @@ import (
 )
 
 func TestReloadsSinceCountsOnlyThisBoot(t *testing.T) {
-	boot := time.Unix(1_800_000_000, 0)
-	rec := reloadRecord(boot, 3)
-	if got := reloadsSince(rec, boot.Add(2*time.Second)); got != 3 {
+	rec := reloadRecord(2*time.Hour, 3)
+	if got := reloadsSince(rec, 2*time.Hour+time.Second); got != 3 {
 		t.Errorf("same boot = %d, want 3", got)
 	}
-	if got := reloadsSince(rec, boot.Add(time.Hour)); got != 0 {
+	if got := reloadsSince(rec, time.Minute); got != 0 {
 		t.Errorf("later boot = %d, want 0", got)
 	}
-	if got := reloadsSince("", boot); got != 0 {
+	if got := reloadsSince("", time.Hour); got != 0 {
 		t.Errorf("no record = %d, want 0", got)
 	}
 }
