@@ -34,6 +34,9 @@ func Run(w io.Writer, version string, p vdisplay.Provider) error {
 	}
 
 	switch ff, err := media.FFmpegPath(); {
+	case media.InProcess:
+		fmt.Fprintln(w, "Capture/encode:   ScreenCaptureKit + VideoToolbox (in-process)")
+		fmt.Fprintln(w, "                  needs Screen Recording permission for this terminal app")
 	case err != nil:
 		fmt.Fprintf(w, "Capture/encode:   NOT AVAILABLE: %v\n", err)
 	case runtime.GOOS == "darwin":

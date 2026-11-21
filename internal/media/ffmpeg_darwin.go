@@ -10,16 +10,14 @@ import (
 	"github.com/ebitengine/purego"
 )
 
-// NewPipeline captures the display with ffmpeg's avfoundation input and
-// encodes it with VideoToolbox (hardware H.264).
+// newFFmpegScreenPipeline captures the display with ffmpeg's avfoundation
+// input and encodes it with VideoToolbox (hardware H.264). Builds without
+// cgo use it.
 //
 // avfoundation names screens "Capture screen N", where N is the display's
 // position in CGGetActiveDisplayList, so the CGDirectDisplayID is mapped to
 // that position first.
-//
-// TODO(darwin): replace with ScreenCaptureKit → VideoToolbox in-process
-// (cgo) for lower latency, real keyframe requests and no ffmpeg dependency.
-func NewPipeline(displayID string, fps, bitrateKbps int) (Pipeline, error) {
+func newFFmpegScreenPipeline(displayID string, fps, bitrateKbps int) (Pipeline, error) {
 	if _, err := FFmpegPath(); err != nil {
 		return nil, err
 	}
