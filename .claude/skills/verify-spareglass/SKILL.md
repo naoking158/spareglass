@@ -79,12 +79,13 @@ Read-only. Checks: tmux session alive; the port's listener is this run's binary;
 | `$SG answer <RUN_ID> <CODE> y\|n` | answer the host prompt; refuses unless the waiting prompt shows `CODE` |
 | `$SG devices <RUN_ID> [revoke ID\|clear]` | the real `spareglass devices` CLI against this run's store |
 | `$SG displays` | spareglass virtual displays macOS has right now (`system_profiler`) |
+| `$SG poke <RUN_ID>` | `--real` only: move the pointer to a random spot on the run's newest virtual display, so the next captured frame must differ |
 | `$SG log <RUN_ID>` | host log (stdout + stderr, `-v` debug HTTP lines) |
 | `$SG pw <RUN_ID> <playwright-cli args>` | anything else: `screenshot --filename=x.png`, `snapshot`, `reload`, `resize W H`, `tab-new`, `tab-select I`, `goto URL`, `console` |
 
 `sg pw` runs with cwd = the evidence directory, so `--filename` paths land there, and it exits non-zero when playwright-cli reports an error.
 
-State fields (`s` in predicates): `url`, `live` (body has class `live` = host said streaming), `videoWidth`, `videoHeight`, `t` (video currentTime), `status` (text of `#status`), `statusError`, `code` (pairing code or null), `connectEnabled`, `screen` ([w, h]), `paired` (credential in localStorage).
+State fields (`s` in predicates): `url`, `live` (body has class `live` = host said streaming), `videoWidth`, `videoHeight`, `t` (video currentTime), `frame` (hash of the picture the video shows now, null before the first frame), `status` (text of `#status`), `statusError`, `code` (pairing code or null), `connectEnabled`, `screen` ([w, h]), `paired` (credential in localStorage).
 
 Standard pairing + stream journey:
 
@@ -98,6 +99,8 @@ $SG wait $ID 's.paired && s.connectEnabled' 5
 $SG pw $ID click 'getByRole("button", { name: "Connect" })'
 $SG wait $ID 's.live && s.videoWidth > 0 && s.t > 1' 20
 $SG state $ID live
+$SG poke $ID            # --real only
+$SG state $ID live-2    # frame must differ from live.json
 $SG pw $ID screenshot --filename=live.png
 $SG displays
 ```
@@ -114,7 +117,9 @@ Everything lives in `~/.cache/spareglass-verify/<RUN_ID>/evidence/` and survives
 - `devices.txt` (every `sg devices` output), `devices-final.txt` (store at teardown), `displays-after-down.txt` (proves the virtual displays were removed).
 - `.playwright-cli/`: snapshots and console logs from playwright-cli.
 
-Streaming is proven by `live: true`, `videoWidth > 0` and `t` increasing between two `state` calls, plus `first frame sent` in the log. The `#status` text is not proof: it stays `Connecting…` while live.
+Streaming is proven by `live: true`, `videoWidth > 0` and `frame` changing between two `state` calls, plus `first frame sent` in the log. In `--real` mode, run `sg poke` between the two calls, because a still desktop gives the same `frame` even when the stream is healthy. `t` alone is not proof: it keeps increasing while the host sends the same picture over and over. The `#status` text is not proof either: it stays `Connecting…` while live.
+
+A `--real` change to `internal/media` or `internal/vdisplay` must also be checked at 1920×1080 or larger: run `$SG pw $ID resize 1920 1080` before Connect. The default 1280×720 screen does not reach the large-frame path, where ffmpeg's input probing differs.
 
 ## Cleanup
 

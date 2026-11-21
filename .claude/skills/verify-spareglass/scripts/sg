@@ -54,10 +54,21 @@ STATE_JS='() => {
   const v = document.getElementById("screen");
   const c = document.getElementById("code");
   const st = document.getElementById("status");
+  const frameHash = (video) => {
+    if (!video.videoWidth) return null;
+    const cv = document.createElement("canvas");
+    cv.width = 160; cv.height = 90;
+    const g = cv.getContext("2d", { willReadFrequently: true });
+    g.drawImage(video, 0, 0, cv.width, cv.height);
+    let h = 2166136261;
+    for (const b of g.getImageData(0, 0, cv.width, cv.height).data) h = Math.imul(h ^ b, 16777619);
+    return (h >>> 0).toString(16);
+  };
   return {
     url: location.pathname,
     live: document.body.classList.contains("live"),
     videoWidth: v.videoWidth, videoHeight: v.videoHeight, t: v.currentTime,
+    frame: frameHash(v),
     status: st.textContent, statusError: st.classList.contains("error"),
     code: c.hidden ? null : c.textContent,
     connectEnabled: !document.getElementById("connect").disabled,
@@ -65,6 +76,12 @@ STATE_JS='() => {
     paired: !!localStorage.getItem("spareglass.device")
   };
 }'
+
+# Evaluates a page function passed through a file rather than as a playwright-cli argument.
+page_eval() {
+  printf 'async page => page.evaluate(%s)\n' "$1" > "$RUN/eval.js"
+  pw --raw run-code --filename="$RUN/eval.js"
+}
 
 wait_http() { # url, tries
   for _ in $(seq 1 "$2"); do curl -fsS "$1" >/dev/null 2>&1 && return 0; sleep 0.25; done
@@ -192,7 +209,7 @@ cmd_open() {
 
 cmd_state() {
   load "$1"
-  local json; json="$(pw --raw eval "$STATE_JS")" || { echo "$json"; return 1; }
+  local json; json="$(page_eval "$STATE_JS")" || { echo "$json"; return 1; }
   echo "$json"
   [[ -n "${2:-}" ]] && printf '%s\n' "$json" > "$EV/$2.json"
   return 0
@@ -203,14 +220,14 @@ cmd_wait() {
   local pred="$2" timeout="${3:-15}" json=""
   local end=$((SECONDS + timeout))
   while (( SECONDS < end )); do
-    if json="$(pw --raw eval "() => { const s = ($STATE_JS)(); return ($pred) ? JSON.stringify(s) : null; }")" && [[ "$json" != "null" ]]; then
+    if json="$(page_eval "() => { const s = ($STATE_JS)(); return ($pred) ? JSON.stringify(s) : null; }")" && [[ "$json" != "null" ]]; then
       echo "met: $pred"
       return 0
     fi
     sleep 0.5
   done
   echo "TIMEOUT after ${timeout}s waiting for: $pred"
-  pw --raw eval "$STATE_JS" || true
+  page_eval "$STATE_JS" || true
   return 1
 }
 
@@ -241,6 +258,26 @@ cmd_devices() { load "$1"; shift; host_cli devices "$@" | tee -a "$EV/devices.tx
 
 cmd_displays() {
   system_profiler SPDisplaysDataType | grep -A2 "spareglass" || echo "no spareglass virtual displays"
+}
+
+# Moves the pointer to a new spot on the run's newest virtual display, so the next captured frame must differ.
+cmd_poke() {
+  load "$1"
+  [[ "$TARGET" == macos && "$MODE" == real ]] || die "poke needs a macOS --real run"
+  local id
+  id="$(grep 'virtual display created' "$EV/host.log" | tail -1 | sed -nE 's/.* id=([0-9]+).*/\1/p')"
+  [[ -n "$id" ]] || die "no virtual display in host.log yet (Connect first)"
+  osascript -l JavaScript - "$id" <<'JXA'
+ObjC.import("CoreGraphics");
+function run(argv) {
+  const b = $.CGDisplayBounds(parseInt(argv[0]));
+  if (b.size.width === 0) throw new Error("display " + argv[0] + " not found");
+  const x = b.origin.x + b.size.width * (0.2 + 0.6 * Math.random());
+  const y = b.origin.y + b.size.height * (0.2 + 0.6 * Math.random());
+  $.CGWarpMouseCursorPosition({ x: x, y: y });
+  return "pointer at " + Math.round(x - b.origin.x) + "," + Math.round(y - b.origin.y) + " on display " + argv[0];
+}
+JXA
 }
 
 cmd_log() { load "$1"; cat "$EV/host.log"; }
@@ -279,6 +316,7 @@ case "${1:-help}" in
   pw) shift; cmd_pw "$@" ;;
   devices) shift; cmd_devices "$@" ;;
   displays) cmd_displays ;;
+  poke) shift; cmd_poke "$@" ;;
   log) shift; cmd_log "$@" ;;
   down) shift; cmd_down "$@" ;;
   *) cat <<'EOF'
@@ -292,6 +330,7 @@ sg answer RUN_ID CODE y|n      answer the host's pairing prompt, only if it show
 sg pw RUN_ID <args...>         raw playwright-cli in this run's session (cwd = evidence dir)
 sg devices RUN_ID [...]        "spareglass devices" against this run's store (appends evidence/devices.txt)
 sg displays                    macOS only: spareglass virtual displays this Mac has right now
+sg poke RUN_ID                 --real only: move the pointer on the run's newest virtual display
 sg log RUN_ID                  print the host log
 sg down RUN_ID                 stop browser + host, delete scratch state, keep evidence
 EOF
