@@ -1,9 +1,10 @@
 // Package media defines the capture → encode pipeline that feeds a WebRTC
 // video track.
 //
-// Today the macOS pipeline runs ffmpeg (avfoundation capture + VideoToolbox
-// H.264) and reads its Annex-B output. The long-term plan is in-process
-// capture/encode per OS, which will likely need cgo:
+// On macOS, builds with cgo capture with ScreenCaptureKit and encode with
+// VideoToolbox in-process; builds without cgo run ffmpeg (avfoundation +
+// VideoToolbox) and read its Annex-B output. Windows runs ffmpeg too. The
+// plan is in-process capture/encode on every OS:
 //
 //	          capture                 encode
 //	darwin   ScreenCaptureKit        VideoToolbox (H.264)
