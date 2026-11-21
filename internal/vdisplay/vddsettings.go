@@ -12,8 +12,8 @@ import (
 const vddMarker = "<!-- spareglass -->"
 
 // vddModeBudget caps the modes the driver's monitor offers once spareglass
-// has added its resolutions; with too many, the monitor does not come back
-// after RELOAD_DRIVER.
+// has added its resolutions; with too many, the driver leaves out the sizes
+// listed last.
 const vddModeBudget = 64
 
 var (
@@ -40,7 +40,7 @@ func withVDDResolution(xml string, width, height, hz int) (string, error) {
 	for vddModes(out) > vddModeBudget {
 		added := vddAddedRE.FindAllStringIndex(out, -1)
 		if len(added) == 0 || keep && len(added) == 1 {
-			return "", fmt.Errorf("it lists %d modes; the Virtual Display Driver's monitor may not start with more than %d: remove resolutions or g_refresh_rate entries from it", vddModes(out), vddModeBudget)
+			return "", fmt.Errorf("it lists %d modes; the Virtual Display Driver leaves out modes beyond %d: remove resolutions or g_refresh_rate entries from it", vddModes(out), vddModeBudget)
 		}
 		out = out[:added[0][0]] + out[added[0][1]:]
 	}
