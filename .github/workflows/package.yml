@@ -233,8 +233,6 @@ jobs:
           ./server.test.exe -test.v -test.run TestStreamsVirtualDisplay | tee -a test.log
           grep -q -- "--- PASS: TestVDDDisplayStreams" test.log
           grep -q -- "--- PASS: TestStreamsVirtualDisplay" test.log
-          echo "resolutions added by spareglass: $(grep -c -- '<!-- spareglass -->' /c/VirtualDisplayDriver/vdd_settings.xml)"
-          grep -q -- '<!-- spareglass -->' /c/VirtualDisplayDriver/vdd_settings.xml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
