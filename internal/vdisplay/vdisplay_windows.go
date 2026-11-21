@@ -26,9 +26,9 @@ import (
 // Open uses the mode the monitor offers that is closest to the requested
 // size; only when none is close does it add the size there and send
 // RELOAD_DRIVER over the driver's named pipe, at most maxReloads times per
-// process. It then sets the mode and places the monitor right of the others. The driver cannot
-// go below one monitor, so Close detaches it from the desktop instead of
-// removing it.
+// process. It then sets the mode and places the monitor right of the others.
+// The driver cannot go below one monitor, so Close detaches it from the
+// desktop instead of removing it.
 func Default() Provider { return &vddProvider{} }
 
 const (
@@ -77,11 +77,10 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 		return nil, err
 	}
 	if err == nil {
-		mode, close := nearestMode(windisplay.Modes(dev), s.Width, s.Height)
-		if mode == [2]int{s.Width, s.Height} {
-			markVDDModeUsed(s.Width, s.Height)
-		} else if close || p.reloads >= maxReloads {
+		mode, near := nearestMode(windisplay.Modes(dev), s.Width, s.Height)
+		if near || p.reloads >= maxReloads {
 			s.Width, s.Height = mode[0], mode[1]
+			markVDDModeUsed(s.Width, s.Height)
 		} else {
 			err = errNeedReload
 		}
