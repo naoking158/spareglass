@@ -117,6 +117,12 @@ func runServe(args []string) error {
 		return err
 	}
 
+	release, err := claimInstance()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	provider := vdisplay.Default()
 	if err := provider.Available(); err != nil {
 		log.Warn("virtual displays are not available; clients can connect but will not get a screen yet",
