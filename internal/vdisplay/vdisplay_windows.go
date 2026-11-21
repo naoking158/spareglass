@@ -23,9 +23,10 @@ import (
 //
 // The driver offers only the resolutions listed in its vdd_settings.xml, so
 // Open adds the requested size there and sends RELOAD_DRIVER over the
-// driver's named pipe when its monitor lacks that mode or is missing, then sets the mode
-// and places the monitor right of the others. The driver cannot go below one
-// monitor, so Close detaches it from the desktop instead of removing it.
+// driver's named pipe when its monitor lacks that mode or is missing, then
+// sets the mode and places the monitor right of the others. The driver cannot
+// go below one monitor, so Close detaches it from the desktop instead of
+// removing it.
 func Default() Provider { return &vddProvider{} }
 
 const (
@@ -52,8 +53,7 @@ func (*vddProvider) Available() error {
 	if !vddInstalled() {
 		return ErrNoDriver
 	}
-	_, err := vddDevice()
-	return err
+	return nil
 }
 
 func (p *vddProvider) Open(s Spec) (Display, error) {
@@ -174,7 +174,7 @@ func addVDDMode(width, height, hz int) (string, error) {
 	}
 	updated, err := withVDDResolution(string(b), width, height, hz)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%s: %w", path, err)
 	}
 	if updated != string(b) {
 		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
