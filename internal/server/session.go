@@ -306,6 +306,7 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	}
 	s.pipeline = p
 	s.mu.Unlock()
+	s.log.Info("capture pipeline started", "pipeline", fmt.Sprintf("%T", p))
 	s.send(statusMsg{Type: "status", State: "streaming", Width: w, Height: h})
 	go func() {
 		s.sent.restart()
