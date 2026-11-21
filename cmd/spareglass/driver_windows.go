@@ -3,7 +3,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +21,7 @@ func installDriverIfMissing(p vdisplay.Provider) {
 	}
 	setup, err := driverSetupPath()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot install the Virtual Display Driver: %v.\nExtract the whole zip and start spareglass.exe from the extracted folder.\n", err)
 		return
 	}
 	if err := installDriver(setup); err != nil {
@@ -30,9 +30,6 @@ func installDriverIfMissing(p vdisplay.Provider) {
 }
 
 func runInstallDriver() error {
-	if vdisplay.DriverInstalled() {
-		return errors.New(`the Virtual Display Driver is already installed (to reinstall it, first uninstall "Virtual Display Driver" in Settings > Apps)`)
-	}
 	setup, err := driverSetupPath()
 	if err != nil {
 		return err
@@ -41,13 +38,7 @@ func runInstallDriver() error {
 }
 
 func installDriver(setup string) error {
-	fmt.Println("Installing the Virtual Display Driver (first time only).")
-	fmt.Println(`Windows asks twice: answer "Yes", then "Install".`)
-	if err := vdisplay.InstallDriver(setup, filepath.Join(os.TempDir(), "spareglass-driver-setup.log")); err != nil {
-		return err
-	}
-	fmt.Println("The Virtual Display Driver is installed.")
-	return nil
+	return vdisplay.InstallDriver(os.Stdout, setup, filepath.Join(os.TempDir(), "spareglass-driver-setup.log"))
 }
 
 func driverSetupPath() (string, error) {
@@ -55,12 +46,12 @@ func driverSetupPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if real, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = real
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
 	}
 	p := filepath.Join(filepath.Dir(exe), vdisplay.DriverSetup)
 	if _, err := os.Stat(p); err != nil {
-		return "", fmt.Errorf("the driver installer is missing: %w", err)
+		return "", fmt.Errorf("its installer %s is missing", p)
 	}
 	return p, nil
 }

@@ -61,8 +61,11 @@ Windows の確認が出るので、次のように答えます。
 - 「Virtual Display Driver is not installed」と出る: 黒いウィンドウを閉じて、
   spareglass.exe をもう一度ダブルクリックし、Windows の確認に
   「はい」「インストール」で答えてください。
-- 「Virtual Display Driver is installed but its monitor is missing」と出る:
-  Windows を再起動してください。直らないときは、設定 → アプリ で
+  「installer ... is missing」と出る場合は、zip を開いただけで展開して
+  いません。zip を右クリック →「すべて展開」してから、展開したフォルダの
+  spareglass.exe をダブルクリックしてください。
+- ドライバを入れるときに「インストール」を押さなかった、または
+  「display did not appear」と出た: 設定 → アプリ で
   「Virtual Display Driver」をアンインストールしてから、
   spareglass.exe をもう一度ダブルクリックしてください。
 - 「You must install .NET Desktop Runtime to run this application.」と出た:

@@ -38,9 +38,7 @@ const (
 )
 
 // ErrNoDriver means the Virtual Display Driver is not installed.
-var ErrNoDriver = fmt.Errorf("%w: the Virtual Display Driver is not installed: start spareglass.exe from the spareglass folder to install it (see HOW-TO-USE.txt)", ErrUnavailable)
-
-var errNoMonitor = fmt.Errorf("%w: the Virtual Display Driver is installed but its monitor is missing: restart Windows, or uninstall \"Virtual Display Driver\" in Settings > Apps and start spareglass.exe again (see HOW-TO-USE.txt)", ErrUnavailable)
+var ErrNoDriver = fmt.Errorf("%w: the Virtual Display Driver is not installed: start spareglass.exe from the extracted spareglass folder, or run \"spareglass install-driver\", to install it (see HOW-TO-USE.txt)", ErrUnavailable)
 
 type vddProvider struct {
 	mu   sync.Mutex
@@ -162,7 +160,7 @@ func vddDevice() (string, error) {
 			return m.Device, nil
 		}
 	}
-	return "", errNoMonitor
+	return "", ErrNoDriver
 }
 
 // addVDDMode lists width×height in the driver settings, reloads the driver

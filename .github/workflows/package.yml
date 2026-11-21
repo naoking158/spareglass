@@ -205,6 +205,15 @@ jobs:
           if (-not (Test-Path C:\VirtualDisplayDriver\MttVDD.dll)) { "driver files are missing"; exit 1 }
           if (Test-Path C:\VirtualDisplayDriver\ControlApp\VDDControl.exe) { "VDD Control was installed"; exit 1 }
           if (Get-Process VDDControl -ErrorAction SilentlyContinue) { "VDD Control is running"; exit 1 }
+      - name: A second install-driver leaves the installed driver alone
+        shell: bash
+        run: |
+          set -euo pipefail
+          if "$RUNNER_TEMP/sg/spareglass.exe" install-driver </dev/null >again.log 2>&1; then
+            cat again.log; echo "install-driver ran the setup again"; exit 1
+          fi
+          cat again.log
+          grep -q "already installed" again.log
       - name: Virtual display as a standard (non-admin) user
         shell: pwsh
         run: |
