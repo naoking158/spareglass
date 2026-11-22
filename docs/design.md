@@ -11,7 +11,9 @@ Host (Go 単一バイナリ)
     ├ vdisplay.Provider  [OS別]  darwin: CGVirtualDisplay
     │                            windows: IddCx (VDD を制御)
     │                            linux: portal VIRTUAL / Mutter RecordVirtual
-    ├ media.Pipeline     [OS別]  capture → H.264 encode（未実装）
+    ├ media.Pipeline     [OS別]  capture → H.264 encode
+    │                            darwin: ScreenCaptureKit → VideoToolbox（cgo）
+    │                            windows: ffmpeg（gdigrab + Media Foundation）
     └ WebRTC (Pion)      [共通]  H.264 video track + "control" DataChannel
   HTTP Server [共通]  web/ を embed で配信 + POST /api/session
 ```
@@ -29,16 +31,22 @@ Host (Go 単一バイナリ)
 
 ### キャプチャ＋エンコード（internal/media）
 
-**現状（暫定）**: macOS は ffmpeg を子プロセスで起動する。`-f avfoundation -i "Capture screen N"`（N は CGGetActiveDisplayList 上の位置）→ `h264_videotoolbox`（Constrained Baseline、B-frame なし、GOP 1 秒、IDR ごとに SPS/PPS）→ stdout の Annex-B を access unit 単位に分割して Pion に渡す。
-制約: access unit の区切りが次フレーム到着で確定するため最大 1 フレーム遅延、PLI でキーフレームを要求できない（GOP 1 秒で代替）、ffmpeg と画面収録権限が必要。
-`serve --test-pattern` で ffmpeg のテストパターンを流せる（ブラウザ側の切り分け用）。
+**macOS（cgo ビルド、配布物を含む）**: ScreenCaptureKit と VideoToolbox をプロセス内で使う（`native_darwin.m`）。
 
-**本命（次段）**:
+- SCStream で仮想ディスプレイを BGRA で受け取る。YUV で出させると画面より約 8/255 明るくなるため、YUV への変換は VideoToolbox に任せる。
+- VideoToolbox は RealTime、Constrained Baseline、フレーム並べ替えなし、709 の色タグ。エンコード結果は 1 フレームずつすぐ出る。
+- ScreenCaptureKit は画面が変わったときだけフレームを出す。PLI を受けたら最後のフレームをキーフレームとして再エンコードする。キーフレーム間隔の上限は 10 秒。
+- 必要なのは画面収録権限だけ。1920x1080 で pointer warp からブラウザ表示まで約 40ms（loopback）。
 
-- darwin: ScreenCaptureKit → VideoToolbox
+**macOS（cgo なし）と Windows**: ffmpeg を子プロセスで起動する。macOS は `-f avfoundation -i "Capture screen N"`（N は CGGetActiveDisplayList 上の位置）→ `h264_videotoolbox`、Windows は gdigrab → Media Foundation。いずれも Constrained Baseline、B-frame なし、GOP 1 秒、IDR ごとに SPS/PPS。stdout の Annex-B を access unit 単位に分割して Pion に渡す。
+制約: access unit の区切りが次フレーム到着で確定するため最大 1 フレーム遅延、PLI でキーフレームを要求できない（GOP 1 秒で代替）、ffmpeg が必要。1920x1080 の macOS では、ホスト側の遅延がプロセス内の経路より約 110ms 大きい（146ms 対 37ms）。
+`serve --test-pattern` で ffmpeg のテストパターンを流せる（ブラウザ側の切り分け用、どの OS でも ffmpeg を使う）。
+
+**次段**:
+
 - windows: Windows.Graphics.Capture → Media Foundation（または NVENC/AMF/QSV）
 - linux: PipeWire（portal の node）→ VA-API / NVENC
-- キャプチャからエンコードまで GPU メモリのまま渡す（IOSurface / D3D11 / DMA-BUF）。
+- キャプチャからエンコードまで GPU メモリのまま渡す（D3D11 / DMA-BUF）。
 - H.264、B-frame なし、低遅延プリセット、ブラウザからの PLI/FIR でキーフレーム。
 - いずれも cgo がほぼ必須。ここが Go の試行錯誤が一番重くなる部分。
 
@@ -51,6 +59,8 @@ Host (Go 単一バイナリ)
 - control DataChannel でクライアントの画面サイズ・DPR・向きを受け取り、そのサイズで仮想ディスプレイを作る。
   サイズ変更時は作り直し。
 - クライアントは `jitterBufferTarget = 0` で遅延を詰める。
+- RTP timestamp は各フレーム自身のキャプチャ時刻にする。1 つ前のフレームの時刻を付けると、間隔が不規則なキャプチャでブラウザの jitter buffer が伸びる。
+- ブラウザが playout-delay 拡張（`http://www.webrtc.org/experiments/rtp-hdrext/playout-delay`）に対応していれば min=max=0 を付ける。画面が変わったときだけ送るフレームを Chrome が数百 ms 抱えるのを防ぐ。
 
 ### URL とペアリング（internal/pairing）
 
@@ -83,8 +93,8 @@ Host → Client
 ## 配布（Release）
 
 - タグ `v*` を push すると GitHub Actions で GoReleaser が動き、darwin/windows/linux × amd64/arm64 のアーカイブを Release に添付する。
-- 現在は全て pure Go（CGO_ENABLED=0）なので Linux ランナー 1 台でクロスコンパイルできる。
-- media 層で cgo を入れたら、OS 別ランナー（macos / windows / ubuntu）でビルドし、最後のジョブで Release にまとめる構成に変える。
+- macOS は cgo（ScreenCaptureKit / VideoToolbox）でビルドするため、GoReleaser は macOS ランナーで動かす。`MACOSX_DEPLOYMENT_TARGET=14.0` の universal binary。Windows と Linux は CGO_ENABLED=0 で同じランナーからクロスコンパイルする。
+- Windows の media 層で cgo を入れたら、Windows ランナーでのビルドを足す。
 - macOS は未公証だと Gatekeeper に止められる。将来は Developer ID 署名＋公証、Homebrew tap、winget も検討。
 
 ## マイルストーン

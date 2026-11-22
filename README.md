@@ -5,13 +5,12 @@ Use any device with a web browser — a tablet, an old laptop, a phone — as an
 install on the display device: open a link, tap Connect.
 
 > **Status: early prototype.** Works end to end on macOS 14+ and Windows 10 /
-> 11 (x64): virtual display → ffmpeg capture and H.264 encode → WebRTC →
-> browser. Linux is not done yet. See [docs/design.md](docs/design.md).
+> 11 (x64): virtual display → capture and H.264 encode → WebRTC → browser. Linux is not done yet. See [docs/design.md](docs/design.md).
 
 | | macOS | Windows | Linux |
 |---|---|---|---|
 | Virtual display | ✅ CGVirtualDisplay | ✅ [Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) (one display at a time) | 🚧 planned (portal / Mutter) |
-| Capture + encode | ✅ ffmpeg (avfoundation + VideoToolbox) | ✅ ffmpeg (gdigrab + Media Foundation) | 🚧 |
+| Capture + encode | ✅ ScreenCaptureKit + VideoToolbox (in-process) | ✅ ffmpeg (gdigrab + Media Foundation) | 🚧 |
 | Browser client | ✅ | ✅ | ✅ |
 
 ## How it works
@@ -43,8 +42,9 @@ follow `HOW-TO-USE.txt` inside the folder (Japanese).
 
 ### macOS
 
-- macOS 14 or later. `spareglass_<version>_mac.zip` is a universal binary
-  with ffmpeg bundled.
+- macOS 14 or later. `spareglass_<version>_mac.zip` is a universal binary.
+  It captures and encodes in-process; the bundled ffmpeg is used only by
+  `serve --test-pattern`.
 - Start it with `Start spareglass.command`. The binaries are not notarized
   yet: if macOS blocks them, allow them in System Settings → Privacy &
   Security, or run `xattr -d com.apple.quarantine ./spareglass` once.
@@ -60,7 +60,8 @@ follow `HOW-TO-USE.txt` inside the folder (Japanese).
 - When the firewall asks, allow access on private networks; otherwise the
   display device cannot connect.
 
-spareglass looks for ffmpeg next to its own binary first, then on `PATH`.
+spareglass looks for ffmpeg (Windows, and `--test-pattern` on macOS) next to
+its own binary first, then on `PATH`.
 
 ## Usage
 
@@ -103,8 +104,10 @@ encrypted with DTLS-SRTP. Run spareglass only on networks you trust.
 
 ## Development
 
-Requires Go 1.27+. Running from source on macOS needs ffmpeg on `PATH`
-(`brew install ffmpeg`).
+Requires Go 1.27+. On macOS, building with cgo (the default when the Xcode
+command line tools are installed) uses the in-process pipeline. A build with
+`CGO_ENABLED=0` falls back to ffmpeg and needs it on `PATH`
+(`brew install ffmpeg`); so does `--test-pattern`.
 
 ```sh
 make run       # start the host with verbose logs
