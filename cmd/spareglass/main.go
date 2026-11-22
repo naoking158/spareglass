@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -99,6 +101,7 @@ func runServe(args []string) error {
 	fs.Float64Var(&cfg.RenderScale, "render-scale", cfg.RenderScale, "virtual display size relative to the client's CSS pixels (1 = legible, devicePixelRatio = sharp)")
 	verbose := fs.Bool("v", false, "verbose logging")
 	testPattern := fs.Bool("test-pattern", false, "stream ffmpeg's test pattern instead of the virtual display (to check the browser side)")
+	noOpen := fs.Bool("no-open", false, "do not open the host page in the default browser")
 	_ = fs.Parse(args)
 
 	if err := cfg.Validate(); err != nil {
@@ -131,7 +134,9 @@ func runServe(args []string) error {
 	if !*testPattern {
 		installDriverIfMissing(provider)
 	}
+	var displayProblem string
 	if err := provider.Available(); err != nil {
+		displayProblem = err.Error()
 		log.Warn("virtual displays are not available; clients can connect but will not get a screen yet",
 			"provider", provider.Name(), "err", err)
 	} else if err := provider.CloseAll(); err != nil {
@@ -141,6 +146,10 @@ func runServe(args []string) error {
 	ln, err := listen(cfg.Addr, log)
 	if err != nil {
 		return err
+	}
+	hostLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return fmt.Errorf("listen for the host page: %w", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
@@ -162,10 +171,28 @@ func runServe(args []string) error {
 	})
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 
-	errCh := make(chan error, 1)
-	go func() { errCh <- httpSrv.Serve(ln) }()
+	port := ln.Addr().(*net.TCPAddr).Port
+	urls := netutil.LANURLs(port, "/1")
+	token := randomToken()
+	hostSrv := &http.Server{Handler: srv.HostHandler(server.HostOptions{
+		Token:          token,
+		URLs:           urls,
+		QR:             qrPNG(urls),
+		DisplayProblem: displayProblem,
+		Stop:           stop,
+	}), ReadHeaderTimeout: 10 * time.Second}
 
-	printBanner(ln.Addr().(*net.TCPAddr).Port, cfg.MaxClients, len(store.List()), path)
+	errCh := make(chan error, 2)
+	go func() { errCh <- httpSrv.Serve(ln) }()
+	go func() { errCh <- hostSrv.Serve(hostLn) }()
+
+	hostURL := fmt.Sprintf("http://127.0.0.1:%d/#%s", hostLn.Addr().(*net.TCPAddr).Port, token)
+	printBanner(port, urls, cfg.MaxClients, len(store.List()), path, hostURL)
+	if !*noOpen {
+		if err := openBrowser(hostURL); err != nil {
+			log.Warn("could not open the host page; open it yourself", "url", hostURL, "err", err)
+		}
+	}
 
 	select {
 	case <-ctx.Done():
@@ -179,8 +206,27 @@ func runServe(args []string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
+	_ = hostSrv.Shutdown(shutdownCtx)
 	srv.Close() // removes every virtual display we created
 	return nil
+}
+
+func randomToken() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// qrPNG encodes the first URL as a QR code, or returns nil when there is none.
+func qrPNG(urls []string) []byte {
+	if len(urls) == 0 {
+		return nil
+	}
+	png, err := qrcode.Encode(urls[0], qrcode.Medium, 256)
+	if err != nil {
+		return nil
+	}
+	return png
 }
 
 // listen binds addr, or port 80 then 7878 when addr is empty.
@@ -204,10 +250,10 @@ func listen(addr string, log *slog.Logger) (net.Listener, error) {
 	return ln, nil
 }
 
-func printBanner(port, displays, paired int, cfgPath string) {
-	urls := netutil.LANURLs(port, "/1")
+func printBanner(port int, urls []string, displays, paired int, cfgPath, hostURL string) {
 	fmt.Println()
 	fmt.Println("spareglass is running.")
+	fmt.Println("Host page (approve devices, quit): " + hostURL)
 	if len(urls) == 0 {
 		host := "<this-computer-ip>"
 		if port != 80 {
@@ -226,7 +272,7 @@ func printBanner(port, displays, paired int, cfgPath string) {
 			fmt.Printf("  (/1 to /%d choose the display)\n", displays)
 		}
 	}
-	fmt.Printf("New browsers ask for approval here. Paired browsers: %d (manage with \"spareglass devices\").\n", paired)
+	fmt.Printf("New browsers ask for approval on the host page or here. Paired browsers: %d.\n", paired)
 	fmt.Printf("Config: %s\n", cfgPath)
 	fmt.Println("Press Ctrl+C to stop.")
 	fmt.Println()

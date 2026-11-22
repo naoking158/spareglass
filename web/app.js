@@ -86,7 +86,7 @@ async function pair() {
   if (!res.ok) throw new Error(body.error || `Host answered ${res.status}`);
 
   showCode(body.code);
-  setStatus("Approve this code on the host computer: answer y in the spareglass terminal.");
+  setStatus("Approve this code on the host computer: click Allow on the spareglass page.");
 
   const deadline = Date.now() + 2 * 60 * 1000;
   while (Date.now() < deadline) {
@@ -227,6 +227,12 @@ async function startSession() {
     startStats(pc, control);
   };
   control.onmessage = (ev) => handleStatus(JSON.parse(ev.data));
+  // Chrome reports a peer the host closed only as "disconnected", but the
+  // data channel closes at once.
+  const channel = control;
+  control.onclose = () => {
+    if (control === channel) disconnect("The host closed this connection. Tap Connect to retry.", true);
+  };
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);

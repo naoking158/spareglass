@@ -107,7 +107,12 @@ func TestHostAPIRejectsForeignRequests(t *testing.T) {
 		t.Fatal("a rejected request stopped the host")
 	default:
 	}
-	for _, path := range []string{"/api/state", "/api/stop", "/api/devices/x"} {
+	for path, want := range map[string]int{"/": 200, "/host.js": 200, "/host.css": 200, "/qr.png": 404} {
+		if res := hostDo(t, http.MethodGet, host.URL+path, nil, func(r *http.Request) { r.Header.Del(TokenHeader) }); res.StatusCode != want {
+			t.Errorf("host page GET %s without token = %d, want %d", path, res.StatusCode, want)
+		}
+	}
+	for _, path := range []string{"/api/state", "/api/stop", "/api/devices/x", "/host.js", "/host.css", "/qr.png"} {
 		if res := hostDo(t, http.MethodGet, lan.URL+path, nil, nil); res.StatusCode != http.StatusNotFound {
 			t.Errorf("LAN handler serves %s: %d, want 404", path, res.StatusCode)
 		}

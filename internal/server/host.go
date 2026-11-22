@@ -4,12 +4,14 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/naoking158/spareglass/internal/pairing"
+	"github.com/naoking158/spareglass/web"
 )
 
 // TokenHeader carries the host page's token on every host API call.
@@ -23,6 +25,8 @@ type HostOptions struct {
 	URLs []string
 	// DisplayProblem says why virtual displays cannot be created, if they cannot.
 	DisplayProblem string
+	// QR is a PNG of the first URL, served at /qr.png; nil when there is none.
+	QR []byte
 	// Stop shuts the host down, like Ctrl+C. Required.
 	Stop func()
 }
@@ -54,7 +58,7 @@ type answerRequest struct {
 	Allow *bool `json:"allow"`
 }
 
-// HostHandler serves the API of the page the person at the host uses to
+// HostHandler serves the page (and its API) the person at the host uses to
 // see the connect URLs, approve browsers, forget them and stop the host.
 // It approves pairing, so serve it only on a loopback listener: it also
 // rejects requests that do not come from loopback, name a non-loopback Host
@@ -64,7 +68,21 @@ func (s *Server) HostHandler(o HostOptions) http.Handler {
 	if o.Stop == nil {
 		panic("server: HostOptions.Stop is required")
 	}
+	static, _ := fs.Sub(web.Files, ".")
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, static, "host.html")
+	})
+	mux.Handle("GET /host.js", http.FileServerFS(static))
+	mux.Handle("GET /host.css", http.FileServerFS(static))
+	mux.HandleFunc("GET /qr.png", func(w http.ResponseWriter, r *http.Request) {
+		if o.QR == nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(o.QR)
+	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, s.hostState(o))
 	})
@@ -107,7 +125,7 @@ func (s *Server) HostHandler(o HostOptions) http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 		go o.Stop()
 	})
-	return securityHeaders(hostGuard(o.Token, mux))
+	return s.logRequests(securityHeaders(hostGuard(o.Token, mux)))
 }
 
 func (s *Server) hostState(o HostOptions) hostState {

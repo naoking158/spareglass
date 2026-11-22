@@ -13,7 +13,7 @@ This directory is the maintained source for verifying the user-facing behavior o
 
 - Browser actions: `$SG pw $ID ...` (playwright-cli). The only control is `getByRole("button", { name: "Connect" })`.
 - Read client state with `$SG state $ID [NAME]` and wait with `$SG wait $ID '<predicate over s>' SEC`. Do not use fixed sleeps.
-- Host terminal actions: `$SG answer $ID <CODE> y|n`. Host CLI: `$SG devices $ID ...`.
+- Host terminal actions: `$SG answer $ID <CODE> y|n`. Host page: `$SG host $ID` prints its URL. Host CLI: `$SG devices $ID ...`.
 - Machine state: `$SG displays`.
 
 ## Proof and skip reporting
@@ -32,4 +32,5 @@ Each feature file has an H1, one paragraph, then `Sub-features`, `How to get to 
 - [Pairing](./pairing.md): first-visit approval in the host terminal, deny, remembered browser.
 - [Streaming](./streaming.md): Connect → virtual display → live video, resize, reconnect.
 - [Display slots](./display-slots.md): `/1`…`/N` choose the display; one browser per slot; out-of-range 404.
+- [Host page](./host-page.md): the page on the host computer: connect URL/QR, Allow/Don't allow, connected displays, Remove, Quit.
 - [Device management](./device-management.md): `spareglass devices` list/revoke/clear and its effect on browsers.

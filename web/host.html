@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>spareglass</title>
+  <link rel="stylesheet" href="/host.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>spareglass</h1>
+      <p id="running" data-t="running" role="status"></p>
+    </header>
+
+    <p id="problem" class="notice error" hidden></p>
+
+    <section id="pending" aria-labelledby="pending-title" hidden>
+      <h2 id="pending-title" data-t="pendingTitle"></h2>
+      <ul id="pending-list" class="cards"></ul>
+    </section>
+
+    <section aria-labelledby="connect-title">
+      <h2 id="connect-title" data-t="connectTitle"></h2>
+      <div class="connect">
+        <img id="qr" alt="QR code" width="180" height="180" hidden>
+        <div>
+          <p data-t="connectHelp"></p>
+          <p id="url" class="url"></p>
+          <p id="other-urls" class="muted" hidden></p>
+          <p id="no-url" class="notice" data-t="noURL" hidden></p>
+          <p class="muted" data-t="connectNext"></p>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="displays-title">
+      <h2 id="displays-title" data-t="displaysTitle"></h2>
+      <ul id="displays-list" class="rows"></ul>
+      <p id="displays-empty" class="muted" data-t="displaysEmpty"></p>
+    </section>
+
+    <section aria-labelledby="devices-title">
+      <h2 id="devices-title" data-t="devicesTitle"></h2>
+      <ul id="devices-list" class="rows"></ul>
+      <p id="devices-empty" class="muted" data-t="devicesEmpty"></p>
+    </section>
+
+    <footer>
+      <button id="stop" type="button" class="secondary" data-t="stop"></button>
+      <p class="muted" data-t="stopHelp"></p>
+    </footer>
+  </main>
+
+  <div id="gone" class="gone" hidden>
+    <p id="gone-text"></p>
+  </div>
+
+  <script src="/host.js"></script>
+</body>
+</html>

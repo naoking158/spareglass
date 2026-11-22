@@ -30,7 +30,7 @@ $SG up --real          # real capture of the virtual display
 `up` prints `RUN_ID=<id>` first, then the URL, mode, git rev, checkout fingerprint and the evidence directory. Copy the RUN_ID literally into every later command. It:
 
 - builds `./cmd/spareglass` into `~/.cache/spareglass-verify/<id>/spareglass`,
-- starts `serve -v --addr 127.0.0.1:<free port>` in tmux session `sg-<id>` with `HOME=<run>/home`, so `config.json` and `devices.json` are private to this run (the user's paired devices are never touched),
+- starts `serve -v --no-open --addr 127.0.0.1:<free port>` in tmux session `sg-<id>` with `HOME=<run>/home`, so `config.json` and `devices.json` are private to this run (the user's paired devices are never touched),
 - waits until `/api/healthz` answers. If it does not within 10s, it tears the run down and exits non-zero.
 
 Ready means: `sg doctor` passes and `sg open` shows the page title `spareglass · display 1`.
@@ -77,6 +77,7 @@ Read-only. Checks: tmux session alive; the port's listener is this run's binary;
 | `$SG state <RUN_ID> [NAME]` | client state JSON (below); `NAME` also saves `evidence/NAME.json` |
 | `$SG wait <RUN_ID> '<JS predicate over s>' [SEC]` | poll state until true; exits 1 with the last state on timeout |
 | `$SG answer <RUN_ID> <CODE> y\|n` | answer the host prompt; refuses unless the waiting prompt shows `CODE` |
+| `$SG host <RUN_ID>` | the host page URL with its token; open it with `sg pw <RUN_ID> tab-new URL` ([features/host-page.md](features/host-page.md)) |
 | `$SG devices <RUN_ID> [revoke ID\|clear]` | the real `spareglass devices` CLI against this run's store |
 | `$SG displays` | spareglass virtual displays macOS has right now (`system_profiler`) |
 | `$SG poke <RUN_ID>` | `--real` only: move the pointer to a random spot on the run's newest virtual display, so the next captured frame must differ |
