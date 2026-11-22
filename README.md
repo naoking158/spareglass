@@ -101,10 +101,10 @@ Flags override the config file (`spareglass config path`).
 | Flag | Config key | Default | Meaning |
 |---|---|---|---|
 | `--addr` | `addr` | port 80, else 7878 | Listen address |
-| `--fps` | `fps` | `60` | Target frame rate |
+| `--fps` | `fps` | `60` | Target frame rate. On a macOS host, `120` lowers latency and uses more bandwidth while the screen moves |
 | `--bitrate` | `bitrate_kbps` | `12000` | Video bitrate per display (kbps) |
 | `--max-clients` | `max_clients` | `2` | Displays connected at once |
-| `--render-scale` | `render_scale` | `1` | Display size vs. the client's CSS pixels (`1` legible, `2` sharp) |
+| `--render-scale` | `render_scale` | `1` | Display size in points vs. the client's CSS pixels (`2` makes everything half as large). On a macOS host, Retina clients get a HiDPI display with twice the pixels |
 
 ## Security
 

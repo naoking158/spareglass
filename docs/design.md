@@ -24,10 +24,19 @@ Host (Go 単一バイナリ)
 
 | OS | 手段 | 状態 | 注意 |
 |---|---|---|---|
-| macOS 14+ | CGVirtualDisplay（private API）。go-macos/virtualdisplay（purego, cgo 不要, BSD-3）を利用 | 実装済み（実機未検証） | App Store 配布不可。モード変更すると削除不能になるので「作り直し」で対応。名前ごとに ICC プロファイルが残るので名前は固定（spareglass N） |
+| macOS 14+ | CGVirtualDisplay（private API）。go-macos/virtualdisplay（purego, cgo 不要, BSD-3）を利用 | 実装済み | App Store 配布不可。モード変更すると削除不能になるので「作り直し」で対応。名前ごとに ICC プロファイルが残るので名前は固定（spareglass N） |
 | Windows 10/11 | Indirect Display Driver。自作せず署名済みの VirtualDrivers/Virtual-Display-Driver を前提にする | 未実装 | ドライバ更新時に黒画面になる事例あり。切断時に必ずモニタを外す。異常終了に備えてウォッチドッグ |
 | Linux (Wayland) | xdg-desktop-portal ScreenCast の source type VIRTUAL（KDE）、GNOME は org.gnome.Mutter.ScreenCast.Session.RecordVirtual を直接 | 未実装 | DE ごとの成熟度差が大きい（KDE の解像度固定バグ、GNOME 50 の更新遅延報告など）。正式サポート範囲を明示する |
 | Linux (X11) | xrandr の仮想出力 | 未実装 | フォールバック扱い |
+
+**macOS の HiDPI**: クライアントの DPR が `2 × render_scale` 以上なら、CSS サイズ（pt）の 2 倍の画素を持つ HiDPI ディスプレイを作る。
+
+- モード切替はしない。最大モードを画素サイズ、HiDPI フラグ、追加モードを pt サイズ、物理サイズを 220dpi 相当にして作ると、macOS は最初から pt サイズ・2 倍の画素で起動する。
+- 小さいサイズでは等倍で起動することがある。CGDisplayBounds（pt）で確かめ、Retina でなければ作り直して等倍で開く。
+- go-macos/virtualdisplay は、作ったプロセスからモードを読めないと pt を画素として比べ、Retina での起動を ErrWrongMode で弾く。v0.5.0 を `internal/virtualdisplay` に取り込み、go.mod の replace で使って、その判定だけ直している（`PATCHES.md`）。
+- 画素数は 3840×2400 までにする。VideoToolbox の H.264 は 5120×2880 で開けない。これを超えるクライアントは等倍のまま。
+- キャプチャする画素サイズは、ディスプレイを作った session から media に渡す。同じプロセスで作った 2 枚目以降の HiDPI ディスプレイについて、ScreenCaptureKit が pt のサイズを返すため。
+- 文字は鮮明になる代わりに遅延が増える。1920x1080 pt（loopback）で、pointer warp からホスト側の最終パケットまで約 35ms → 約 55ms。
 
 ### キャプチャ＋エンコード（internal/media）
 
@@ -37,6 +46,7 @@ Host (Go 単一バイナリ)
 - VideoToolbox は RealTime、Constrained Baseline、フレーム並べ替えなし、709 の色タグ。エンコード結果は 1 フレームずつすぐ出る。
 - ScreenCaptureKit は画面が変わったときだけフレームを出す。PLI を受けたら最後のフレームをキーフレームとして再エンコードする。キーフレーム間隔の上限は 10 秒。
 - 必要なのは画面収録権限だけ。1920x1080 で pointer warp からブラウザ表示まで約 40ms（loopback）。
+- `fps` を 120 にすると仮想ディスプレイも 120Hz で作られ、ScreenCaptureKit の最小間隔も 1/120 になる。1920x1080 の等倍では、pointer warp からホスト側の最終パケットまでが約 40ms → 約 29ms（loopback）。HiDPI では差が計測のぶれに埋もれる。既定は 60 のまま。動いている間の帯域が増え（目標 12Mbps に対し 5 秒平均で 17.6Mbps の区間があった）、`fps` は Windows の表示モードと ffmpeg にも効くが、そちらは未計測のため。
 
 **macOS（cgo なし）と Windows**: ffmpeg を子プロセスで起動する。macOS は `-f avfoundation -i "Capture screen N"`（N は CGGetActiveDisplayList 上の位置）→ `h264_videotoolbox`、Windows は gdigrab → Media Foundation。いずれも Constrained Baseline、B-frame なし、GOP 1 秒、IDR ごとに SPS/PPS。stdout の Annex-B を access unit 単位に分割して Pion に渡す。
 制約: access unit の区切りが次フレーム到着で確定するため最大 1 フレーム遅延、PLI でキーフレームを要求できない（GOP 1 秒で代替）、ffmpeg が必要。1920x1080 の macOS では、ホスト側の遅延がプロセス内の経路より約 110ms 大きい（146ms 対 37ms）。
