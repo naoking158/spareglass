@@ -29,9 +29,12 @@ type Config struct {
 	// RenderScale sizes the virtual display, in points, relative to the
 	// client's CSS pixels. 1 keeps text legible. On macOS a client with a
 	// devicePixelRatio of at least 2×RenderScale gets a HiDPI display, which
-	// is already sharp; elsewhere the devicePixelRatio gives the sharpest
+	// is already sharp, unless NoHiDPI is set; elsewhere the devicePixelRatio gives the sharpest
 	// picture at a higher bitrate.
 	RenderScale float64 `json:"render_scale"`
+	// NoHiDPI gives every client a display with one pixel per point, even
+	// a Retina one that would get a HiDPI display: lower latency, softer text.
+	NoHiDPI bool `json:"no_hidpi"`
 }
 
 // Default returns the built-in defaults.

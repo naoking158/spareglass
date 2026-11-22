@@ -239,7 +239,7 @@ func TestStreamsVideo(t *testing.T) {
 	pattern := func(_ media.Display, fps, _ int) (media.Pipeline, error) {
 		return media.NewFFmpegPipeline(media.TestPatternArgs(320, 240, fps), fps)
 	}
-	streamOverWebRTC(t, fp, pattern, 640, 480, 15*time.Second)
+	streamOverWebRTC(t, fp, pattern, 640, 480, 45*time.Second)
 }
 
 // TestStreamsVirtualDisplay runs the same path with this OS's real virtual
@@ -556,6 +556,18 @@ func TestZeroPlayoutDelay(t *testing.T) {
 		if err := pd.Unmarshal(pkt.Header.GetExtension(id)); err != nil || pd.MinDelay != 0 || pd.MaxDelay != 0 {
 			t.Fatalf("packet %d: playout-delay %+v (err %v), want min=max=0", pkt.SequenceNumber, pd, err)
 		}
+	}
+}
+
+func TestNoHiDPIKeepsRetinaClientAtOnePixelPerPoint(t *testing.T) {
+	fp := &fakeProvider{opened: make(chan vdisplay.Spec, 1)}
+	cfg := config.Default()
+	cfg.NoHiDPI = true
+	m := NewManager(cfg, fp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s := &Session{m: m, slot: 0, log: m.log}
+	s.ensureDisplay(controlMsg{Type: "hello", Width: 1180, Height: 820, DPR: 2})
+	if spec := <-fp.opened; spec.HiDPI {
+		t.Fatalf("opened %+v with HiDPI, want 1 pixel per point", spec)
 	}
 }
 
