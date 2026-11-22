@@ -66,12 +66,27 @@ Host (Go 単一バイナリ)
 
 - URL は手打ち前提で短くする: `http://<ホストIP>/<ディスプレイ番号>`。ポートは既定で 80（macOS / Windows は一般ユーザーで可）、使えなければ 7878。
 - `.local` 名（mDNS）は今回は見送り。素の `foo-bar` はルーター DNS か hosts 設定が必要なためアプリ単体では不可。
-- 初回: ブラウザが `POST /api/pair` → 4 桁コードを表示 → ホストのターミナルに「許可しますか? [y/N]」→ `y` で承認。
+- 初回: ブラウザが `POST /api/pair` → 4 桁コードを表示 → ホストの操作画面に同じコードと「許可する／許可しない」を出す。
+  ターミナルの「許可しますか? [y/N]」も残し、先に答えた方を採る（操作画面で答えるとターミナルの問い合わせは取り消す）。
   ブラウザは `GET /api/pair/{id}` をポーリングし、承認されたら device id と secret を一度だけ受け取って localStorage に保存。
 - 2 回目以降: `Authorization: Device <id>:<secret>` で `POST /api/session`。ホストは secret の SHA-256 だけを `devices.json` に保存。
 - 未応答のリクエストは 2 分で失効、同時待ちは最大 4 件。
-- `spareglass devices [list|revoke ID|clear]`。ホストはファイル更新を検知して再読込するので、起動中でも即反映。
+- 許可した機器は操作画面の「削除」か `spareglass devices [list|revoke ID|clear]` で消す。ホストはファイル更新を検知して再読込するので、起動中でも即反映。
+  操作画面から消すと、その機器の接続中のセッションも閉じる。
 - 承認の 1 タップではフルスクリーンにできない（ユーザー操作が非同期処理で失われる）ため、承認後にもう一度 Connect を押す。
+
+### ホストの操作画面（internal/server/host.go, web/host.*）
+
+- ターミナルを使わない人向けに、接続の許可、許可した機器の削除、終了をブラウザの画面でできるようにする。
+  専用アプリにはせず、ホストが配信用とは別に `127.0.0.1:0` で待ち受け、起動時に既定のブラウザで開く（`--no-open` で開かない）。
+  Windows 向けのビルドを変えずに済み、検証もブラウザ自動操作で回せる。
+- 画面: タブレットで開く URL と QR コード、許可待ちの要求、接続中の画面、許可した機器、終了ボタン。
+  文言はブラウザの言語で日本語か英語。1 秒ごとに `GET /api/state` をポーリングし、変わった区画だけ描き直す。
+- API: `GET /api/state`、`POST /api/pair/{id}`（`{"allow":bool}`）、`DELETE /api/devices/{id}`、`POST /api/stop`。
+  終了は Ctrl+C と同じ後始末の経路を通る。
+- 守り: 接続元が loopback、Host が `127.0.0.1` か `localhost`（DNS rebinding 対策）、Origin が一致（CSRF 対策）。
+  API は起動ごとの乱数トークンを `X-Spareglass-Token` ヘッダで要求する。トークンは URL の `#` 以降に載せ、サーバーのログや Referer に出さない。
+- 再び開くときは、ターミナルに出る `Host page` の URL を `#` 以降まで含めて使う。
 
 ## 制御メッセージ（DataChannel "control"）
 

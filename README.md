@@ -20,15 +20,16 @@ host (this computer)                           display device
 ┌──────────────────────────────┐              ┌──────────────┐
 │ virtual display ─▶ capture   │   WebRTC     │ browser      │
 │       ─▶ H.264 encode ───────┼─────────────▶│ <video>      │
-│ HTTP server + pairing (y/N)  │◀─────────────┤ screen size  │
+│ HTTP server + host page      │◀─────────────┤ screen size  │
 └──────────────────────────────┘   LAN only   └──────────────┘
 ```
 
 1. `spareglass` starts a small web server and prints a short URL such as
    `http://192.168.1.20/1` (and a QR code).
 2. The display device opens it. The first time, it shows a 4-digit code and
-   the host asks in its terminal whether to allow that browser. Once allowed,
-   the browser is remembered and later visits connect right away.
+   the host page on this computer shows the same code with **Allow** and
+   **Don't allow**. Once allowed, the browser is remembered and later visits
+   connect right away.
 3. The display device reports its screen size.
 4. The host creates a virtual monitor of that size — the OS treats it as a real
    one, so you can drag windows onto it.
@@ -78,9 +79,20 @@ spareglass devices clear
 spareglass version
 ```
 
-Then type the printed URL on the other device (e.g. `http://192.168.1.20/1`),
-tap **Connect**, and answer `y` in the host terminal. `/1`, `/2`, … pick which
-virtual display that browser shows. Both devices must be on the same network.
+When it starts, spareglass opens its host page in this computer's default
+browser (pass `--no-open` to skip). The page shows the URL and QR code for the
+other device, connection requests waiting for approval, connected displays,
+allowed devices with a **Remove** button, and **Quit spareglass**. It follows
+the browser language (English or Japanese).
+
+Type the printed URL on the other device (e.g. `http://192.168.1.20/1`), tap
+**Connect**, check that the 4-digit code matches, and click **Allow** on the
+host page. Answering `y` in the host terminal works too; whichever answers
+first wins. `/1`, `/2`, … pick which virtual display that browser shows. Both
+devices must be on the same network.
+
+If you close the host page, reopen it from the `Host page` line the terminal
+prints at startup, including the part after `#`.
 
 ### Settings
 
@@ -96,10 +108,13 @@ Flags override the config file (`spareglass config path`).
 
 ## Security
 
-Only browsers you approve in the host terminal can connect. Each approved
+Only browsers you approve on the host page (or in the host terminal) can
+connect. Each approved
 browser holds a random credential in localStorage; the host keeps only its
-SHA-256 in `devices.json` next to the config file. Revoke one with
-`spareglass devices revoke ID` (applies to a running host). Media is
+SHA-256 in `devices.json` next to the config file. Remove one on the host page, which also cuts its stream at once, or with
+`spareglass devices revoke ID` (applies to a running host). The host page
+listens on `127.0.0.1` on a separate port, so other devices on the network
+cannot reach it, and its API requires the token in the page URL after `#`. Media is
 encrypted with DTLS-SRTP. Run spareglass only on networks you trust.
 
 ## Development
