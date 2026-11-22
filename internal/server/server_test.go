@@ -425,7 +425,7 @@ func (r *refusingProvider) Open(s vdisplay.Spec) (vdisplay.Display, error) {
 
 func TestFallsBackToSmallerDisplay(t *testing.T) {
 	rp := &refusingProvider{fakeProvider{opened: make(chan vdisplay.Spec, 1)}}
-	m := NewManager(config.Default(), rp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m := NewManager(config.Default(), rp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s := &Session{m: m, slot: 0, log: m.log}
 	s.ensureDisplay(controlMsg{Type: "hello", Width: 3840, Height: 2160, DPR: 1})
 	select {
@@ -458,7 +458,7 @@ func (u *unavailableProvider) Open(vdisplay.Spec) (vdisplay.Display, error) {
 
 func TestUnavailableDisplayIsNotRetriedSmaller(t *testing.T) {
 	up := &unavailableProvider{}
-	m := NewManager(config.Default(), up, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m := NewManager(config.Default(), up, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s := &Session{m: m, slot: 0, log: m.log}
 	s.ensureDisplay(controlMsg{Type: "hello", Width: 3840, Height: 2160, DPR: 1})
 	if up.calls != 1 {
@@ -471,7 +471,7 @@ func TestUnavailableDisplayIsNotRetriedSmaller(t *testing.T) {
 func TestDisplaySizesAreAligned(t *testing.T) {
 	for _, size := range [][2]float64{{1010, 450}, {1011, 451}, {3846, 1603}, {1603, 3846}} {
 		rp := &refusingProvider{fakeProvider{opened: make(chan vdisplay.Spec, 1)}}
-		m := NewManager(config.Default(), rp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		m := NewManager(config.Default(), rp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		s := &Session{m: m, slot: 0, log: m.log}
 		s.ensureDisplay(controlMsg{Type: "hello", Width: size[0], Height: size[1], DPR: 1})
 		select {
@@ -498,7 +498,7 @@ func (r *shortRefusingProvider) Open(s vdisplay.Spec) (vdisplay.Display, error) 
 
 func TestShortLandscapeScreenGetsDisplay(t *testing.T) {
 	rp := &shortRefusingProvider{fakeProvider{opened: make(chan vdisplay.Spec, 1)}}
-	m := NewManager(config.Default(), rp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m := NewManager(config.Default(), rp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s := &Session{m: m, slot: 0, log: m.log}
 	s.ensureDisplay(controlMsg{Type: "hello", Width: 915, Height: 412, DPR: 1})
 	select {

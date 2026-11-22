@@ -35,7 +35,10 @@ type Options struct {
 	Provider vdisplay.Provider
 	// NewPipeline builds capture pipelines; nil means media.NewPipeline.
 	NewPipeline media.Factory
-	Logger      *slog.Logger
+	// Cursor reads the pointer for the client to draw; nil means
+	// media.CursorPosition (nil where the video shows the pointer).
+	Cursor media.CursorFunc
+	Logger *slog.Logger
 }
 
 // Server is the HTTP front of the host.
@@ -50,7 +53,10 @@ func New(o Options) *Server {
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
-	return &Server{opts: o, sessions: NewManager(o.Config, o.Provider, o.NewPipeline, o.Logger), log: o.Logger}
+	if o.Cursor == nil {
+		o.Cursor = media.CursorPosition
+	}
+	return &Server{opts: o, sessions: NewManager(o.Config, o.Provider, o.NewPipeline, o.Cursor, o.Logger), log: o.Logger}
 }
 
 // Handler returns the HTTP routes.

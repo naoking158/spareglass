@@ -335,3 +335,16 @@ static void stopCapture(SGCapture *c) {
 	if (c.last) CVPixelBufferRelease(c.last);
 	c.last = NULL;
 }
+
+// ---- Pointer position ----
+
+int sgCursorPosition(uint32_t display_id, double *x, double *y) {
+	CGEventRef e = CGEventCreate(NULL);
+	if (!e) return 0;
+	CGPoint p = CGEventGetLocation(e);
+	CFRelease(e);
+	CGRect b = CGDisplayBounds(display_id);
+	*x = p.x - b.origin.x;
+	*y = p.y - b.origin.y;
+	return CGRectContainsPoint(b, p) ? 1 : 0;
+}
