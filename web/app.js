@@ -9,12 +9,14 @@ const video = $("screen");
 const statusEl = $("status");
 const codeEl = $("code");
 const button = $("connect");
+const cursorEl = $("cursor");
 
 const slot = parseInt(location.pathname.slice(1), 10) || 1;
 const STORAGE_KEY = "spareglass.device";
 
 let pc = null;
 let control = null;
+let cursorChannel = null;
 let statsTimer = 0;
 
 $("title").textContent = `Use this screen as display ${slot}`;
@@ -204,6 +206,45 @@ function stopStats() {
   statsTimer = 0;
 }
 
+// Pointer overlay: a macOS host leaves the pointer out of the video and sends
+// its position on the "cursor" channel in display points. The arrow is drawn
+// at that point of the letterboxed video, scaled like the video.
+const CURSOR_TIP = 1; // the arrow's tip in its viewBox units (points)
+const cursor = { seq: 0, x: 0, y: 0, visible: false };
+let displaySize = null; // [width, height] in points, from the "streaming" status
+
+function placeCursor() {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!cursor.visible || !displaySize || !vw || !vh || !document.body.classList.contains("live")) {
+    cursorEl.toggleAttribute("hidden", true);
+    return;
+  }
+  const scale = Math.min(video.clientWidth / vw, video.clientHeight / vh);
+  const width = vw * scale;
+  const height = vh * scale;
+  const perPoint = width / displaySize[0];
+  const left = (video.clientWidth - width) / 2 + cursor.x * perPoint - CURSOR_TIP * perPoint;
+  const top = (video.clientHeight - height) / 2 + cursor.y * (height / displaySize[1]) - CURSOR_TIP * perPoint;
+  cursorEl.style.width = `${cursorEl.viewBox.baseVal.width * perPoint}px`;
+  cursorEl.style.height = `${cursorEl.viewBox.baseVal.height * perPoint}px`;
+  cursorEl.style.transform = `translate(${left}px, ${top}px)`;
+  cursorEl.toggleAttribute("hidden", false);
+}
+
+function onCursor(ev) {
+  const msg = JSON.parse(ev.data);
+  if (msg.seq <= cursor.seq) return; // unordered channel: a late message is stale
+  Object.assign(cursor, msg);
+  placeCursor();
+}
+
+function resetCursor() {
+  Object.assign(cursor, { seq: 0, visible: false });
+  displaySize = null;
+  cursorEl.toggleAttribute("hidden", true);
+}
+
 class NotPaired extends Error {}
 
 async function startSession() {
@@ -227,6 +268,8 @@ async function startSession() {
     startStats(pc, control);
   };
   control.onmessage = (ev) => handleStatus(JSON.parse(ev.data));
+  cursorChannel = pc.createDataChannel("cursor", { ordered: false, maxRetransmits: 0 });
+  cursorChannel.onmessage = onCursor;
   // Chrome reports a peer the host closed only as "disconnected", but the
   // data channel closes at once.
   const channel = control;
@@ -286,7 +329,9 @@ function handleStatus(msg) {
   if (msg.type !== "status") return;
   switch (msg.state) {
     case "streaming":
+      displaySize = [msg.width, msg.height];
       document.body.classList.add("live");
+      placeCursor();
       break;
     case "display-only":
       disconnect(`The host can create display ${slot} but cannot stream it: ${msg.detail}`, true);
@@ -307,7 +352,9 @@ function closePeer() {
   if (pc) pc.close();
   pc = null;
   control = null;
+  cursorChannel = null;
   video.srcObject = null;
+  resetCursor();
 }
 
 function disconnect(message, isError = false) {
@@ -324,6 +371,9 @@ function onResize() {
   resizeTimer = setTimeout(() => {
     if (control && control.readyState === "open") {
       control.send(JSON.stringify(screenInfo("resize")));
+      // The host may recreate the display; the next cursor message shows the arrow again.
+      cursor.visible = false;
+      placeCursor();
     }
   }, 400);
 }
@@ -333,4 +383,6 @@ button.addEventListener("click", () => {
   connect().catch((err) => disconnect(err.message || String(err), true));
 });
 window.addEventListener("resize", onResize);
+window.addEventListener("resize", placeCursor);
+video.addEventListener("resize", placeCursor);
 watchFrames();

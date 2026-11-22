@@ -64,6 +64,16 @@ STATE_JS='() => {
     for (const b of g.getImageData(0, 0, cv.width, cv.height).data) h = Math.imul(h ^ b, 16777619);
     return (h >>> 0).toString(16);
   };
+  const cursorAt = (video) => {
+    const el = document.getElementById("cursor");
+    if (!el || el.hasAttribute("hidden") || !video.videoWidth) return null;
+    const r = el.getBoundingClientRect(), vb = el.viewBox.baseVal;
+    const tip = [r.left + r.width / vb.width, r.top + r.height / vb.height];
+    const scale = Math.min(video.clientWidth / video.videoWidth, video.clientHeight / video.videoHeight);
+    const off = [(video.clientWidth - video.videoWidth * scale) / 2, (video.clientHeight - video.videoHeight * scale) / 2];
+    const round = (x) => Math.round(x * 10) / 10;
+    return { css: tip.map(round), video: [round((tip[0] - off[0]) / scale), round((tip[1] - off[1]) / scale)] };
+  };
   return {
     url: location.pathname,
     live: document.body.classList.contains("live"),
@@ -73,7 +83,8 @@ STATE_JS='() => {
     code: c.hidden ? null : c.textContent,
     connectEnabled: !document.getElementById("connect").disabled,
     screen: [screen.width, screen.height],
-    paired: !!localStorage.getItem("spareglass.device")
+    paired: !!localStorage.getItem("spareglass.device"),
+    cursor: cursorAt(v)
   };
 }'
 
@@ -269,24 +280,59 @@ cmd_displays() {
   system_profiler SPDisplaysDataType | grep -A2 "spareglass" || echo "no spareglass virtual displays"
 }
 
-# Moves the pointer to a new spot on the run's newest virtual display, so the next captured frame must differ.
-cmd_poke() {
-  load "$1"
-  [[ "$TARGET" == macos && "$MODE" == real ]] || die "poke needs a macOS --real run"
+# Builds a helper from scripts/NAME.{c,m} into the shared run root.
+helper() {
+  local name="$1" src
+  src="$(ls "$SKILL_DIR/scripts/$name".{c,m} 2>/dev/null | head -1)"
+  local bin="$ROOT/$name"
+  if [[ ! -x "$bin" || "$src" -nt "$bin" ]]; then
+    clang -O2 -fobjc-arc -framework ApplicationServices -framework AppKit -o "$bin" "$src" || die "could not build $name"
+  fi
+  echo "$bin"
+}
+
+run_display() {
   local id
   id="$(grep 'virtual display created' "$EV/host.log" | tail -1 | sed -nE 's/.* id=([0-9]+).*/\1/p')"
   [[ -n "$id" ]] || die "no virtual display in host.log yet (Connect first)"
-  osascript -l JavaScript - "$id" <<'JXA'
-ObjC.import("CoreGraphics");
-function run(argv) {
-  const b = $.CGDisplayBounds(parseInt(argv[0]));
-  if (b.size.width === 0) throw new Error("display " + argv[0] + " not found");
-  const x = b.origin.x + b.size.width * (0.2 + 0.6 * Math.random());
-  const y = b.origin.y + b.size.height * (0.2 + 0.6 * Math.random());
-  $.CGWarpMouseCursorPosition({ x: x, y: y });
-  return "pointer at " + Math.round(x - b.origin.x) + "," + Math.round(y - b.origin.y) + " on display " + argv[0];
+  echo "$id"
 }
-JXA
+
+# Shows a colored square on the run's newest virtual display for 3s, so the
+# next captured frame must differ. The video has no pointer, so moving the
+# pointer does not change it.
+cmd_poke() {
+  load "$1"
+  [[ "$TARGET" == macos && "$MODE" == real ]] || die "poke needs a macOS --real run"
+  local id bin
+  id="$(run_display)" || exit 1
+  bin="$(helper flash)"
+  "$bin" "$id" 3 > "$RUN/flash.out" 2>&1 &
+  for _ in $(seq 1 40); do grep -q shown "$RUN/flash.out" 2>/dev/null && break; sleep 0.1; done
+  grep -q shown "$RUN/flash.out" || die "flash did not show: $(cat "$RUN/flash.out")"
+  sleep 0.3
+  echo "square shown on display $id for 3s"
+}
+
+# Moves the real pointer with CGEvent mouseMoved posted to the HID event tap,
+# relative to the run's newest virtual display.
+cmd_pointer() {
+  load "$1"
+  [[ "$TARGET" == macos ]] || die "pointer needs a macOS run"
+  local id bin
+  id="$(run_display)" || exit 1
+  bin="$(helper mover)"
+  case "${2:-}" in
+    sweep) "$bin" sweep "$id" "${3:-5}" "${4:-120}" ;;
+    at) [[ -n "${4:-}" ]] || die "usage: sg pointer RUN_ID at X Y"; "$bin" at "$id" "$3" "$4" ;;
+    away) "$bin" at "$(main_display)" 40 40 ;;
+    *) die "usage: sg pointer RUN_ID sweep [SEC] [HZ] | at X Y | away" ;;
+  esac
+}
+
+# The main display's CGDirectDisplayID.
+main_display() {
+  osascript -l JavaScript -e 'ObjC.import("CoreGraphics"); String($.CGMainDisplayID())'
 }
 
 cmd_log() { load "$1"; cat "$EV/host.log"; }
@@ -327,6 +373,7 @@ case "${1:-help}" in
   devices) shift; cmd_devices "$@" ;;
   displays) cmd_displays ;;
   poke) shift; cmd_poke "$@" ;;
+  pointer) shift; cmd_pointer "$@" ;;
   log) shift; cmd_log "$@" ;;
   down) shift; cmd_down "$@" ;;
   *) cat <<'EOF'
@@ -341,7 +388,10 @@ sg host RUN_ID                 print the host page URL (open it in a tab with sg
 sg pw RUN_ID <args...>         raw playwright-cli in this run's session (cwd = evidence dir)
 sg devices RUN_ID [...]        "spareglass devices" against this run's store (appends evidence/devices.txt)
 sg displays                    macOS only: spareglass virtual displays this Mac has right now
-sg poke RUN_ID                 --real only: move the pointer on the run's newest virtual display
+sg poke RUN_ID                 --real only: show a colored square on the run's newest virtual display for 3s
+sg pointer RUN_ID sweep [S] [HZ]  macOS: post mouseMoved events at HZ (default 120) for S seconds on the run's display
+sg pointer RUN_ID at X Y       macOS: move the pointer to X,Y points on the run's display
+sg pointer RUN_ID away         macOS: move the pointer to the main display (off the run's display)
 sg log RUN_ID                  print the host log
 sg down RUN_ID                 stop browser + host, delete scratch state, keep evidence
 EOF

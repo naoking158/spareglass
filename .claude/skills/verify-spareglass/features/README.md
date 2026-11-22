@@ -31,6 +31,7 @@ Each feature file has an H1, one paragraph, then `Sub-features`, `How to get to 
 
 - [Pairing](./pairing.md): first-visit approval in the host terminal, deny, remembered browser.
 - [Streaming](./streaming.md): Connect → virtual display → live video, resize, reconnect.
+- [Pointer](./cursor.md): the host sends the pointer position and the client draws the arrow over the video (macOS).
 - [Display slots](./display-slots.md): `/1`…`/N` choose the display; one browser per slot; out-of-range 404.
 - [Host page](./host-page.md): the page on the host computer: connect URL/QR, Allow/Don't allow, connected displays, Remove, Quit.
 - [Device management](./device-management.md): `spareglass devices` list/revoke/clear and its effect on browsers.

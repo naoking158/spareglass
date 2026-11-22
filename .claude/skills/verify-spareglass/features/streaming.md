@@ -19,7 +19,7 @@ A paired browser taps Connect. The host negotiates WebRTC, creates a virtual dis
 Preconditions: the browser is paired (run [Pairing](./pairing.md) `pair-approve` first) and `$SG displays` shows no `spareglass 1` owned by someone else.
 
 - **Connect.** `$SG pw $ID click 'getByRole("button", { name: "Connect" })'`, then `$SG wait $ID 's.live && s.videoWidth > 0 && s.t > 1' 20`. `$SG state $ID stream-live` shows `live: true`.
-- **Playing, not frozen.** In `--real` mode run `$SG poke $ID` first. Then `$SG state $ID stream-live-2` a second or more later shows a different `frame` than `stream-live.json`. A larger `t` with the same `frame` means the stream is frozen.
+- **Playing, not frozen.** In `--real` mode run `$SG poke $ID` first. Then `$SG state $ID stream-live-2`, within the 3s the square stays, shows a different `frame` than `stream-live.json`. A larger `t` with the same `frame` means the stream is frozen.
 - **Host side.** `$SG log $ID | grep -E 'virtual display created|first frame sent'` shows both lines, with `size=1280x720` for the default headless screen. `$SG displays` lists `spareglass 1: Resolution: 1280 x 720`.
 - **Pixels.** `$SG pw $ID screenshot --filename=stream-live.png`, then read the PNG. Test-pattern mode: color bars with a timecode. `--real`: a macOS desktop (wallpaper + menu bar).
 - **Large display (`--real`, media or vdisplay changes).** On a fresh page, `$SG pw $ID resize 1920 1080` before Connect, then repeat Connect, poke and the two `state` calls. The log shows `size=1920x1080`, and `frame` must change after `poke`.
