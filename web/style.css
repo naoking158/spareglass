@@ -30,6 +30,16 @@ html, body {
 }
 
 body.live #screen { display: block; }
+
+#cursor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+#cursor[hidden] { display: none; }
 body.live #panel { display: none; }
 
 #panel {

@@ -274,7 +274,8 @@ sgCapture *sgCaptureStart(uint32_t displayID, int width, int height, int fps, in
 		// BGRA, so VideoToolbox converts to YUV: ScreenCaptureKit's own YUV output
 		// comes out about 8/255 brighter than the screen.
 		cfg.pixelFormat = kCVPixelFormatType_32BGRA;
-		cfg.showsCursor = YES;
+		// The client draws the pointer (see CursorPosition).
+		cfg.showsCursor = NO;
 		cfg.queueDepth = 3;
 
 		SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
@@ -338,13 +339,18 @@ static void stopCapture(SGCapture *c) {
 
 // ---- Pointer position ----
 
-int sgCursorPosition(uint32_t display_id, double *x, double *y) {
+void sgCursorLocation(double *x, double *y) {
 	CGEventRef e = CGEventCreate(NULL);
-	if (!e) return 0;
-	CGPoint p = CGEventGetLocation(e);
-	CFRelease(e);
+	CGPoint p = e ? CGEventGetLocation(e) : CGPointZero;
+	if (e) CFRelease(e);
+	*x = p.x;
+	*y = p.y;
+}
+
+void sgDisplayBounds(uint32_t display_id, double *x, double *y, double *w, double *h) {
 	CGRect b = CGDisplayBounds(display_id);
-	*x = p.x - b.origin.x;
-	*y = p.y - b.origin.y;
-	return CGRectContainsPoint(b, p) ? 1 : 0;
+	*x = b.origin.x;
+	*y = b.origin.y;
+	*w = b.size.width;
+	*h = b.size.height;
 }
