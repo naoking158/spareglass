@@ -23,7 +23,7 @@ type HostOptions struct {
 	URLs []string
 	// DisplayProblem says why virtual displays cannot be created, if they cannot.
 	DisplayProblem string
-	// Stop shuts the host down, like Ctrl+C.
+	// Stop shuts the host down, like Ctrl+C. Required.
 	Stop func()
 }
 
@@ -61,6 +61,9 @@ type answerRequest struct {
 // (DNS rebinding) or carry another Origin (cross-site requests), and /api/
 // calls without the token.
 func (s *Server) HostHandler(o HostOptions) http.Handler {
+	if o.Stop == nil {
+		panic("server: HostOptions.Stop is required")
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, s.hostState(o))
@@ -71,8 +74,14 @@ func (s *Server) HostHandler(o HostOptions) http.Handler {
 			writeError(w, http.StatusBadRequest, `body must be {"allow": true|false}`)
 			return
 		}
-		if err := s.opts.Pairer.Answer(r.PathValue("id"), req.Allow); err != nil {
+		err := s.opts.Pairer.Answer(r.PathValue("id"), req.Allow)
+		switch {
+		case errors.Is(err, pairing.ErrNoSuchRequest):
 			writeError(w, http.StatusNotFound, err.Error())
+			return
+		case err != nil:
+			s.log.Error("answer pairing", "err", err)
+			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		s.log.Info("pairing answered on the host page", "id", r.PathValue("id"), "allow", req.Allow)

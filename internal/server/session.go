@@ -204,6 +204,16 @@ func (m *Manager) Displays() []DisplayStatus {
 	return list
 }
 
+// Close closes one session; an unknown id is ignored.
+func (m *Manager) Close(id string) {
+	m.mu.Lock()
+	s := m.sessions[id]
+	m.mu.Unlock()
+	if s != nil {
+		s.Close()
+	}
+}
+
 // CloseDevice closes the sessions of a paired browser, for when it is forgotten.
 func (m *Manager) CloseDevice(id string) {
 	m.mu.Lock()

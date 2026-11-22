@@ -209,6 +209,13 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not start session")
 		return
 	}
+	// The browser may have been forgotten while the session was negotiated;
+	// CloseDevice only reaches sessions that were already registered.
+	if _, ok, _ := s.opts.Pairer.Store().Verify(id, secret); !ok {
+		s.sessions.Close(sid)
+		writeError(w, http.StatusUnauthorized, "this browser is not paired")
+		return
+	}
 	writeJSON(w, http.StatusOK, sessionResponse{ID: sid, SDP: answer})
 }
 
