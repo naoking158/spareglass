@@ -73,40 +73,69 @@ type sourceDeviceName struct {
 	gdiName  [32]uint16
 }
 
-// Activate adds the device to the desktop with SetDisplayConfig, keeping
-// every active display as it is; Windows picks the mode and position.
-func Activate(device string) error {
+// Activate puts the target behind device on the desktop with
+// SetDisplayConfig, keeping every active display as it is; Windows picks the
+// mode and position. The target may sit behind another source of the same
+// adapter, so Activate returns the GDI name that now shows it.
+func Activate(device string) (string, error) {
 	active, modes, err := queryConfig(qdcOnlyActivePaths)
 	if err != nil {
-		return err
+		return "", err
 	}
-	all, _, err := queryConfig(qdcAllPaths)
+	raw, _, err := queryConfig(qdcAllPaths)
 	if err != nil {
-		return err
+		return "", err
 	}
-	var path *pathInfo
-	for i := range all {
-		p := all[i]
-		if p.flags&pathActive == 0 && p.targetAvailable != 0 && sourceName(p.sourceAdapter, p.sourceID) == device {
-			path = &p
-			break
-		}
+	paths := describePaths(raw)
+	i, on, err := pickPath(paths, device)
+	if err != nil {
+		return "", fmt.Errorf("SetDisplayConfig: %w; paths %s", err, formatPaths(adapterPaths(paths, device)))
 	}
-	if path == nil {
-		return fmt.Errorf("SetDisplayConfig: no inactive path for %s", device)
+	if on {
+		return paths[i].Source, nil
 	}
+	path := raw[i]
 	path.flags |= pathActive
 	path.sourceModeIdx, path.targetModeIdx = modeIdxInvalid, modeIdxInvalid
-	paths := append(active, *path)
+	supplied := append(active, path)
 	flags := uint32(sdcUseSuppliedDisplayConfig | sdcAllowChanges | sdcSaveToDatabase)
-	if err := setConfig(paths, modes, flags|sdcValidate); err != nil {
-		return fmt.Errorf("SetDisplayConfig(validate %s): %w", device, err)
+	if err := setConfig(supplied, modes, flags|sdcValidate); err != nil {
+		return "", fmt.Errorf("SetDisplayConfig(validate %s): %w; paths %s", paths[i], err, formatPaths(adapterPaths(paths, device)))
 	}
-	if err := setConfig(paths, modes, flags|sdcApply); err != nil {
-		return fmt.Errorf("SetDisplayConfig(%s): %w", device, err)
+	if err := setConfig(supplied, modes, flags|sdcApply); err != nil {
+		return "", fmt.Errorf("SetDisplayConfig(%s): %w", paths[i], err)
 	}
-	return nil
+	return paths[i].Source, nil
 }
+
+// Paths returns QueryDisplayConfig(QDC_ALL_PATHS) for the adapter that owns
+// device, or every path when no path names device.
+func Paths(device string) ([]Path, error) {
+	raw, _, err := queryConfig(qdcAllPaths)
+	if err != nil {
+		return nil, err
+	}
+	return adapterPaths(describePaths(raw), device), nil
+}
+
+func describePaths(raw []pathInfo) []Path {
+	out := make([]Path, len(raw))
+	for i, p := range raw {
+		out[i] = Path{
+			SourceAdapter: p.sourceAdapter.uint64(),
+			SourceID:      p.sourceID,
+			Source:        sourceName(p.sourceAdapter, p.sourceID),
+			TargetAdapter: p.targetAdapter.uint64(),
+			TargetID:      p.targetID,
+			Active:        p.flags&pathActive != 0,
+			Available:     p.targetAvailable != 0,
+			TargetStatus:  p.targetStatus,
+		}
+	}
+	return out
+}
+
+func (l luid) uint64() uint64 { return uint64(uint32(l.high))<<32 | uint64(l.low) }
 
 func queryConfig(flags uint32) ([]pathInfo, []modeInfo, error) {
 	for {

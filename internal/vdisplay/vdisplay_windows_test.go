@@ -98,7 +98,9 @@ func TestVDDActivatesThroughSetDisplayConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := windisplay.Activate(dev); err != nil {
+	before, _ := windisplay.Paths(dev)
+	t.Logf("paths before Activate: %v", before)
+	if dev, err = windisplay.Activate(dev); err != nil {
 		t.Fatal(err)
 	}
 	m, err := windisplay.Find(dev)

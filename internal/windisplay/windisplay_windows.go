@@ -82,6 +82,8 @@ type Monitor struct {
 	Description string // adapter name, e.g. "Virtual Display Driver"
 	Attached    bool
 	Primary     bool
+	Flags       uint32 // DISPLAY_DEVICE stateFlags of the source
+	MonitorID   string // DeviceID of the first monitor on the source, "" when none
 	X, Y        int
 	Width       int
 	Height      int
@@ -101,6 +103,8 @@ func List() ([]Monitor, error) {
 			Description: windows.UTF16ToString(d.deviceString[:]),
 			Attached:    d.stateFlags&attachedToDesktop != 0,
 			Primary:     d.stateFlags&primaryDevice != 0,
+			Flags:       d.stateFlags,
+			MonitorID:   monitorID(&d.deviceName[0]),
 		}
 		if m.Attached {
 			if dm, ok := currentMode(m.Device); ok {
@@ -114,6 +118,17 @@ func List() ([]Monitor, error) {
 		return nil, errors.New("EnumDisplayDevices returned no devices")
 	}
 	return out, nil
+}
+
+// monitorID returns the DeviceID of the first monitor EnumDisplayDevices
+// lists under the source, or "" when the source has none.
+func monitorID(source *uint16) string {
+	var d displayDevice
+	d.cb = uint32(unsafe.Sizeof(d))
+	if r, _, _ := procEnumDisplayDevicesW.Call(uintptr(unsafe.Pointer(source)), 0, uintptr(unsafe.Pointer(&d)), 0); r == 0 {
+		return ""
+	}
+	return windows.UTF16ToString(d.deviceID[:])
 }
 
 // Find returns the monitor with the given device name.
