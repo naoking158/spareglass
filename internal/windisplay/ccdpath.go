@@ -35,9 +35,9 @@ type endpoint struct {
 // pickPath finds the path that shows the target behind the GDI source
 // device. The target is any target on the adapter that owns device, so a
 // target paired with another source of that adapter is found as well.
-// active reports that a target of the adapter is already on the desktop, so
-// every source of the adapter is free otherwise; the returned path is then
-// inactive, preferring an available target and device's own source.
+// When a target of the adapter is already on the desktop, pickPath returns
+// that active path with active set. Otherwise it returns an inactive path,
+// preferring an available target and then device's own source.
 func pickPath(paths []Path, device string) (i int, active bool, err error) {
 	adapters := map[uint64]bool{}
 	for _, p := range paths {
