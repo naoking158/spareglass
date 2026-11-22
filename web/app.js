@@ -86,7 +86,7 @@ async function pair() {
   if (!res.ok) throw new Error(body.error || `Host answered ${res.status}`);
 
   showCode(body.code);
-  setStatus("Approve this code on the host computer: click Allow on the spareglass page.");
+  setStatus("Approve this code on the host computer: click Allow on the spareglass page (or answer y in its terminal).");
 
   const deadline = Date.now() + 2 * 60 * 1000;
   while (Date.now() < deadline) {

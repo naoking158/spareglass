@@ -172,12 +172,10 @@ func runServe(args []string) error {
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 
 	port := ln.Addr().(*net.TCPAddr).Port
-	urls := netutil.LANURLs(port, "/1")
 	token := randomToken()
 	hostSrv := &http.Server{Handler: srv.HostHandler(server.HostOptions{
 		Token:          token,
-		URLs:           urls,
-		QR:             qrPNG(urls),
+		URLs:           func() []string { return netutil.LANURLs(port, "/1") },
 		DisplayProblem: displayProblem,
 		Stop:           stop,
 	}), ReadHeaderTimeout: 10 * time.Second}
@@ -187,7 +185,7 @@ func runServe(args []string) error {
 	go func() { errCh <- hostSrv.Serve(hostLn) }()
 
 	hostURL := fmt.Sprintf("http://127.0.0.1:%d/#%s", hostLn.Addr().(*net.TCPAddr).Port, token)
-	printBanner(port, urls, cfg.MaxClients, len(store.List()), path, hostURL)
+	printBanner(port, netutil.LANURLs(port, "/1"), cfg.MaxClients, len(store.List()), path, hostURL)
 	if !*noOpen {
 		if err := openBrowser(hostURL); err != nil {
 			log.Warn("could not open the host page; open it yourself", "url", hostURL, "err", err)
@@ -215,18 +213,6 @@ func randomToken() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
-}
-
-// qrPNG encodes the first URL as a QR code, or returns nil when there is none.
-func qrPNG(urls []string) []byte {
-	if len(urls) == 0 {
-		return nil
-	}
-	png, err := qrcode.Encode(urls[0], qrcode.Medium, 256)
-	if err != nil {
-		return nil
-	}
-	return png
 }
 
 // listen binds addr, or port 80 then 7878 when addr is empty.
@@ -272,7 +258,7 @@ func printBanner(port int, urls []string, displays, paired int, cfgPath, hostURL
 			fmt.Printf("  (/1 to /%d choose the display)\n", displays)
 		}
 	}
-	fmt.Printf("New browsers ask for approval on the host page or here. Paired browsers: %d.\n", paired)
+	fmt.Printf("New browsers ask for approval on the host page or here. Paired browsers: %d (manage on the host page or with \"spareglass devices\").\n", paired)
 	fmt.Printf("Config: %s\n", cfgPath)
 	fmt.Println("Press Ctrl+C to stop.")
 	fmt.Println()

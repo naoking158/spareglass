@@ -4,5 +4,10 @@ import "os/exec"
 
 // openBrowser opens url in the default browser.
 func openBrowser(url string) error {
-	return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }

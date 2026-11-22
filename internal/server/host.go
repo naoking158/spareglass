@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	qrcode "github.com/skip2/go-qrcode"
+
 	"github.com/naoking158/spareglass/internal/pairing"
 	"github.com/naoking158/spareglass/web"
 )
@@ -21,12 +23,12 @@ const TokenHeader = "X-Spareglass-Token"
 type HostOptions struct {
 	// Token must be sent in TokenHeader on every /api/ call.
 	Token string
-	// URLs are the addresses display devices open, e.g. http://192.168.1.20/1.
-	URLs []string
+	// URLs returns the addresses display devices open now, e.g.
+	// http://192.168.1.20/1. It is called on every state request, so the
+	// page follows network changes. Required.
+	URLs func() []string
 	// DisplayProblem says why virtual displays cannot be created, if they cannot.
 	DisplayProblem string
-	// QR is a PNG of the first URL, served at /qr.png; nil when there is none.
-	QR []byte
 	// Stop shuts the host down, like Ctrl+C. Required.
 	Stop func()
 }
@@ -65,8 +67,8 @@ type answerRequest struct {
 // (DNS rebinding) or carry another Origin (cross-site requests), and /api/
 // calls without the token.
 func (s *Server) HostHandler(o HostOptions) http.Handler {
-	if o.Stop == nil {
-		panic("server: HostOptions.Stop is required")
+	if o.Stop == nil || o.URLs == nil {
+		panic("server: HostOptions.Stop and URLs are required")
 	}
 	static, _ := fs.Sub(web.Files, ".")
 	mux := http.NewServeMux()
@@ -76,12 +78,18 @@ func (s *Server) HostHandler(o HostOptions) http.Handler {
 	mux.Handle("GET /host.js", http.FileServerFS(static))
 	mux.Handle("GET /host.css", http.FileServerFS(static))
 	mux.HandleFunc("GET /qr.png", func(w http.ResponseWriter, r *http.Request) {
-		if o.QR == nil {
+		urls := o.URLs()
+		if len(urls) == 0 {
 			http.NotFound(w, r)
 			return
 		}
+		png, err := qrcode.Encode(urls[0], qrcode.Medium, 256)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write(o.QR)
+		_, _ = w.Write(png)
 	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, s.hostState(o))
@@ -129,7 +137,7 @@ func (s *Server) HostHandler(o HostOptions) http.Handler {
 }
 
 func (s *Server) hostState(o HostOptions) hostState {
-	st := hostState{URLs: o.URLs, DisplayProblem: o.DisplayProblem, Pending: []hostPending{}, Devices: []hostDevice{}, Displays: s.sessions.Displays()}
+	st := hostState{URLs: o.URLs(), DisplayProblem: o.DisplayProblem, Pending: []hostPending{}, Devices: []hostDevice{}, Displays: s.sessions.Displays()}
 	for _, r := range s.opts.Pairer.Pending() {
 		st.Pending = append(st.Pending, hostPending{ID: r.ID, Code: r.Code, Name: r.Name, Addr: r.Addr, Slot: r.Slot, Expires: r.Created.Add(pairing.RequestTTL)})
 	}
