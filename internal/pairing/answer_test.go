@@ -85,11 +85,20 @@ func TestAnswerWhileTerminalAsks(t *testing.T) {
 	if !strings.Contains(out.String(), "answered in the spareglass window") {
 		t.Fatalf("terminal should say the prompt was answered elsewhere, got:\n%s", out.String())
 	}
-	if strings.Count(out.String(), "Allow?") != 1 {
+	// A third request is asked only after the worker has dequeued the queued one.
+	third, _ := p.Start("third", "192.168.0.4", 1)
+	deadline = time.Now().Add(2 * time.Second)
+	for !strings.Contains(out.String(), third.Code) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the third request was never asked; the queued one may be blocking the terminal:\n%s", out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if strings.Count(out.String(), "Allow?") != 2 {
 		t.Fatalf("the queued request was answered before its turn and must not be asked, got:\n%s", out.String())
 	}
-	if len(p.Pending()) != 0 {
-		t.Fatal("no request should be pending")
+	if got := p.Pending(); len(got) != 1 || got[0].ID != third.ID {
+		t.Fatalf("only the third request should be pending, got %+v", got)
 	}
 }
 

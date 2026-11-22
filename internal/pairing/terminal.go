@@ -74,6 +74,9 @@ func (t *TerminalApprover) Ask(ctx context.Context, r *Request) bool {
 				fmt.Fprintln(t.out, "\n  (no terminal input; answer in the spareglass window)")
 				continue
 			}
+			if ctx.Err() != nil {
+				continue // answered elsewhere or expired meanwhile; report that instead
+			}
 			switch strings.ToLower(strings.TrimSpace(line)) {
 			case "y", "yes":
 				fmt.Fprintf(t.out, "  Allowed %s.\n\n", r.Name)

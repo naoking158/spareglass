@@ -150,7 +150,7 @@ func (p *Pairer) run(ctx context.Context) {
 			p.asking, p.stopAsking = nil, nil
 			switch {
 			case ok:
-				p.approveLocked(r)
+				_ = p.approveLocked(r)
 			case deadlineCtx.Err() != nil:
 				p.finishLocked(r, StateExpired)
 			default:
@@ -191,30 +191,34 @@ func (p *Pairer) Answer(id string, allow bool) error {
 		p.finishLocked(r, StateExpired)
 		return ErrNoSuchRequest
 	}
+	var err error
 	if allow {
-		p.approveLocked(r)
+		err = p.approveLocked(r)
 	} else {
 		p.finishLocked(r, StateDenied)
 	}
 	if p.asking == r {
 		p.stopAsking(ErrAnswered)
 	}
-	return nil
+	return err
 }
 
 // approveLocked stores the device unless the request already ended (for
 // example it expired or was answered elsewhere while the owner was typing).
-func (p *Pairer) approveLocked(r *Request) {
+// If the device cannot be saved, the request ends as denied and the error
+// is returned.
+func (p *Pairer) approveLocked(r *Request) error {
 	if r.state != StatePending {
-		return
+		return nil
 	}
 	id, secret, err := p.store.Add(r.Name)
 	if err != nil {
 		p.finishLocked(r, StateDenied)
-		return
+		return fmt.Errorf("save the approved browser: %w", err)
 	}
 	r.deviceID, r.secret = id, secret
 	p.finishLocked(r, StateApproved)
+	return nil
 }
 
 // startAsking marks r as the request the approver is asked about, unless it
