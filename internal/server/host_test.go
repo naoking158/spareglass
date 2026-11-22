@@ -36,7 +36,7 @@ func newHostTestServer(t *testing.T) (lan, host *httptest.Server, stopped chan s
 	s := New(Options{Config: config.Default(), Pairer: pairer, Provider: &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	stopped = make(chan struct{})
 	lan = httptest.NewServer(s.Handler())
-	host = httptest.NewServer(s.HostHandler(HostOptions{Token: testToken, URLs: []string{"http://192.168.1.20/1"}, Stop: func() { close(stopped) }}))
+	host = httptest.NewServer(s.HostHandler(HostOptions{Token: testToken, URLs: func() []string { return []string{"http://192.168.1.20/1"} }, Stop: func() { close(stopped) }}))
 	t.Cleanup(func() { lan.Close(); host.Close(); s.Close(); cancel() })
 	return lan, host, stopped
 }
@@ -98,7 +98,7 @@ func TestHostAPIRejectsForeignRequests(t *testing.T) {
 	req.RemoteAddr = "192.0.2.1:5000"
 	req.Header.Set(TokenHeader, testToken)
 	rec := httptest.NewRecorder()
-	s.HostHandler(HostOptions{Token: testToken, Stop: func() { t.Error("a LAN peer stopped the host") }}).ServeHTTP(rec, req)
+	s.HostHandler(HostOptions{Token: testToken, URLs: func() []string { return nil }, Stop: func() { t.Error("a LAN peer stopped the host") }}).ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("a request from the LAN = %d, want 403", rec.Code)
 	}
@@ -107,7 +107,12 @@ func TestHostAPIRejectsForeignRequests(t *testing.T) {
 		t.Fatal("a rejected request stopped the host")
 	default:
 	}
-	for _, path := range []string{"/api/state", "/api/stop", "/api/devices/x"} {
+	for path, want := range map[string]int{"/": 200, "/host.js": 200, "/host.css": 200, "/qr.png": 200} {
+		if res := hostDo(t, http.MethodGet, host.URL+path, nil, func(r *http.Request) { r.Header.Del(TokenHeader) }); res.StatusCode != want {
+			t.Errorf("host page GET %s without token = %d, want %d", path, res.StatusCode, want)
+		}
+	}
+	for _, path := range []string{"/api/state", "/api/stop", "/api/devices/x", "/host.js", "/host.css", "/qr.png"} {
 		if res := hostDo(t, http.MethodGet, lan.URL+path, nil, nil); res.StatusCode != http.StatusNotFound {
 			t.Errorf("LAN handler serves %s: %d, want 404", path, res.StatusCode)
 		}

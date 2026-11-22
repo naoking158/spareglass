@@ -110,7 +110,7 @@ cmd_up() {
   local rev; rev="$(cd "$repo" && git rev-parse --short HEAD)"
   local fp; fp="$(fingerprint "$repo")"
   local port; port="$(free_port)"
-  local flags="serve -v"
+  local flags="serve -v --no-open"
   [[ "$mode" == test-pattern ]] && flags="$flags --test-pattern"
 
   if [[ "$target" == linux ]]; then
@@ -237,7 +237,7 @@ cmd_answer() {
   local code="${2:-}" a="${3:-}"
   [[ "$code" =~ ^[0-9]{4}$ && "$a" =~ ^[yn]$ ]] || die "usage: sg answer RUN_ID <4-digit code> y|n"
   local pending
-  pending="$(awk '/Code shown on that screen:/ {c=$NF; open=1} /Allowed |Denied |request expired|request denied/ {open=0} END {if (open) print c}' "$EV/host.log")"
+  pending="$(awk '/Code shown on that screen:/ {c=$NF; open=1} /Allowed |Denied |request expired|request denied|answered in the spareglass window/ {open=0} END {if (open) print c}' "$EV/host.log")"
   [[ -n "$pending" ]] || die "no pairing prompt is waiting on the host"
   [[ "$pending" == "$code" ]] || die "host is asking about code $pending, not $code; refusing to answer"
   local before; before="$(wc -l < "$EV/host.log")"
@@ -250,6 +250,15 @@ cmd_answer() {
     sleep 0.25
   done
   die "host did not acknowledge the answer"
+}
+
+# Print the host page URL (with its token) from the host's banner.
+cmd_host() {
+  load "$1"
+  [[ "$TARGET" == linux ]] && die "the host page listens on 127.0.0.1 inside the container; not reachable on the Linux target"
+  local u; u="$(grep -oE 'Host page \(approve devices, quit\): http://127\.0\.0\.1:[0-9]+/#[0-9a-f]+' "$EV/host.log" | tail -1 | awk '{print $NF}')"
+  [[ -n "$u" ]] || die "no host page URL in host.log yet"
+  echo "$u"
 }
 
 cmd_pw() { load "$1"; shift; pw "$@"; }
@@ -313,6 +322,7 @@ case "${1:-help}" in
   state) shift; cmd_state "$@" ;;
   wait) shift; cmd_wait "$@" ;;
   answer) shift; cmd_answer "$@" ;;
+  host) shift; cmd_host "$@" ;;
   pw) shift; cmd_pw "$@" ;;
   devices) shift; cmd_devices "$@" ;;
   displays) cmd_displays ;;
@@ -327,6 +337,7 @@ sg open RUN_ID [N]             open display N (default 1) in this run's headless
 sg state RUN_ID [NAME]         print client state JSON; with NAME also save evidence/NAME.json
 sg wait RUN_ID 'PRED' [SEC]    poll until JS predicate over state `s` holds (default 15s)
 sg answer RUN_ID CODE y|n      answer the host's pairing prompt, only if it shows CODE
+sg host RUN_ID                 print the host page URL (open it in a tab with sg pw ... tab-new URL)
 sg pw RUN_ID <args...>         raw playwright-cli in this run's session (cwd = evidence dir)
 sg devices RUN_ID [...]        "spareglass devices" against this run's store (appends evidence/devices.txt)
 sg displays                    macOS only: spareglass virtual displays this Mac has right now

@@ -4,12 +4,16 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	qrcode "github.com/skip2/go-qrcode"
+
 	"github.com/naoking158/spareglass/internal/pairing"
+	"github.com/naoking158/spareglass/web"
 )
 
 // TokenHeader carries the host page's token on every host API call.
@@ -19,8 +23,10 @@ const TokenHeader = "X-Spareglass-Token"
 type HostOptions struct {
 	// Token must be sent in TokenHeader on every /api/ call.
 	Token string
-	// URLs are the addresses display devices open, e.g. http://192.168.1.20/1.
-	URLs []string
+	// URLs returns the addresses display devices open now, e.g.
+	// http://192.168.1.20/1. It is called on every state request, so the
+	// page follows network changes. Required.
+	URLs func() []string
 	// DisplayProblem says why virtual displays cannot be created, if they cannot.
 	DisplayProblem string
 	// Stop shuts the host down, like Ctrl+C. Required.
@@ -54,17 +60,37 @@ type answerRequest struct {
 	Allow *bool `json:"allow"`
 }
 
-// HostHandler serves the API of the page the person at the host uses to
+// HostHandler serves the page (and its API) the person at the host uses to
 // see the connect URLs, approve browsers, forget them and stop the host.
 // It approves pairing, so serve it only on a loopback listener: it also
 // rejects requests that do not come from loopback, name a non-loopback Host
 // (DNS rebinding) or carry another Origin (cross-site requests), and /api/
 // calls without the token.
 func (s *Server) HostHandler(o HostOptions) http.Handler {
-	if o.Stop == nil {
-		panic("server: HostOptions.Stop is required")
+	if o.Stop == nil || o.URLs == nil {
+		panic("server: HostOptions.Stop and URLs are required")
 	}
+	static, _ := fs.Sub(web.Files, ".")
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, static, "host.html")
+	})
+	mux.Handle("GET /host.js", http.FileServerFS(static))
+	mux.Handle("GET /host.css", http.FileServerFS(static))
+	mux.HandleFunc("GET /qr.png", func(w http.ResponseWriter, r *http.Request) {
+		urls := o.URLs()
+		if len(urls) == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		png, err := qrcode.Encode(urls[0], qrcode.Medium, 256)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(png)
+	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, s.hostState(o))
 	})
@@ -107,11 +133,11 @@ func (s *Server) HostHandler(o HostOptions) http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 		go o.Stop()
 	})
-	return securityHeaders(hostGuard(o.Token, mux))
+	return s.logRequests(securityHeaders(hostGuard(o.Token, mux)))
 }
 
 func (s *Server) hostState(o HostOptions) hostState {
-	st := hostState{URLs: o.URLs, DisplayProblem: o.DisplayProblem, Pending: []hostPending{}, Devices: []hostDevice{}, Displays: s.sessions.Displays()}
+	st := hostState{URLs: o.URLs(), DisplayProblem: o.DisplayProblem, Pending: []hostPending{}, Devices: []hostDevice{}, Displays: s.sessions.Displays()}
 	for _, r := range s.opts.Pairer.Pending() {
 		st.Pending = append(st.Pending, hostPending{ID: r.ID, Code: r.Code, Name: r.Name, Addr: r.Addr, Slot: r.Slot, Expires: r.Created.Add(pairing.RequestTTL)})
 	}
