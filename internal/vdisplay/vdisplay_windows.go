@@ -83,7 +83,7 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 	reloads := vddReloads()
 	if err == nil {
 		mode, near := nearestMode(windisplay.Modes(dev), s.Width, s.Height)
-		if near || reloads >= maxReloads && mode != [2]int{} {
+		if near || (reloads >= maxReloads && mode != [2]int{}) {
 			s.Width, s.Height = mode[0], mode[1]
 			markVDDModeUsed(s.Width, s.Height)
 		} else {
