@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sort"
 	"sync"
 	"time"
 )
@@ -18,6 +19,14 @@ const maxPending = 4
 
 // ErrTooManyRequests is returned when maxPending requests are waiting.
 var ErrTooManyRequests = errors.New("too many pairing requests are waiting")
+
+// ErrNoSuchRequest is returned by Answer when the request is unknown or no
+// longer waiting for an answer.
+var ErrNoSuchRequest = errors.New("no such pairing request is waiting")
+
+// ErrAnswered is the cause of the context an Approver gets when the request
+// was answered through Pairer.Answer while the Approver was still asking.
+var ErrAnswered = errors.New("answered elsewhere")
 
 // State of a pairing request.
 type State string
@@ -65,6 +74,10 @@ type Pairer struct {
 	mu      sync.Mutex
 	reqs    map[string]*Request
 	pending int
+	// asking is the request the approver is asking about now; stopAsking
+	// ends that question when the request is answered through Answer.
+	asking     *Request
+	stopAsking context.CancelCauseFunc
 }
 
 // NewPairer starts a worker that asks the approver one request at a time.
@@ -125,31 +138,74 @@ func (p *Pairer) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case r := <-p.queue:
-			if time.Since(r.Created) > RequestTTL {
-				p.finish(r, StateExpired)
+			if p.skipEnded(r) {
 				continue
 			}
-			askCtx, cancel := context.WithDeadline(ctx, r.Created.Add(RequestTTL))
+			deadlineCtx, cancelDeadline := context.WithDeadline(ctx, r.Created.Add(RequestTTL))
+			askCtx, stop := context.WithCancelCause(deadlineCtx)
+			p.mu.Lock()
+			p.asking, p.stopAsking = r, stop
+			p.mu.Unlock()
 			ok := p.approver.Ask(askCtx, r)
-			expired := askCtx.Err() != nil
-			cancel()
+			p.mu.Lock()
+			p.asking, p.stopAsking = nil, nil
 			switch {
 			case ok:
-				p.approve(r)
-			case expired:
-				p.finish(r, StateExpired)
+				p.approveLocked(r)
+			case deadlineCtx.Err() != nil:
+				p.finishLocked(r, StateExpired)
 			default:
-				p.finish(r, StateDenied)
+				p.finishLocked(r, StateDenied)
 			}
+			p.mu.Unlock()
+			stop(nil)
+			cancelDeadline()
 		}
 	}
 }
 
-// approve stores the device unless the request already ended (for example
-// it expired while the owner was typing).
-func (p *Pairer) approve(r *Request) {
+// Pending returns the requests still waiting for an answer, oldest first.
+func (p *Pairer) Pending() []Request {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	var list []Request
+	for _, r := range p.reqs {
+		if r.state == StatePending && time.Since(r.Created) <= RequestTTL {
+			list = append(list, Request{ID: r.ID, Code: r.Code, Name: r.Name, Addr: r.Addr, Slot: r.Slot, Created: r.Created, state: r.state})
+		}
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Created.Before(list[j].Created) })
+	return list
+}
+
+// Answer approves or denies a waiting request, whether or not the approver is
+// asking about it yet. An approver still asking about it sees its context
+// cancelled with cause ErrAnswered.
+func (p *Pairer) Answer(id string, allow bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	r, ok := p.reqs[id]
+	if !ok || r.state != StatePending {
+		return ErrNoSuchRequest
+	}
+	if time.Since(r.Created) > RequestTTL {
+		p.finishLocked(r, StateExpired)
+		return ErrNoSuchRequest
+	}
+	if allow {
+		p.approveLocked(r)
+	} else {
+		p.finishLocked(r, StateDenied)
+	}
+	if p.asking == r {
+		p.stopAsking(ErrAnswered)
+	}
+	return nil
+}
+
+// approveLocked stores the device unless the request already ended (for
+// example it expired or was answered elsewhere while the owner was typing).
+func (p *Pairer) approveLocked(r *Request) {
 	if r.state != StatePending {
 		return
 	}
@@ -162,10 +218,15 @@ func (p *Pairer) approve(r *Request) {
 	p.finishLocked(r, StateApproved)
 }
 
-func (p *Pairer) finish(r *Request, st State) {
+// skipEnded reports whether a queued request needs no question: it was
+// answered through Answer or expired while it waited in the queue.
+func (p *Pairer) skipEnded(r *Request) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.finishLocked(r, st)
+	if r.state == StatePending && time.Since(r.Created) > RequestTTL {
+		p.finishLocked(r, StateExpired)
+	}
+	return r.state != StatePending
 }
 
 func (p *Pairer) finishLocked(r *Request, st State) {

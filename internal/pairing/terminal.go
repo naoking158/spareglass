@@ -3,6 +3,7 @@ package pairing
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -15,8 +16,9 @@ type TerminalApprover struct {
 }
 
 // NewTerminalApprover reads answers from in (usually os.Stdin). If in reaches
-// EOF (no terminal attached), every later request is denied. Lines typed while
-// no prompt is shown are discarded, so a stray "y" never answers a later request.
+// EOF (no terminal attached), Ask leaves the request to be answered elsewhere
+// (Pairer.Answer) until its context ends. Lines typed while no prompt is shown
+// are discarded, so a stray "y" never answers a later request.
 func NewTerminalApprover(in io.Reader, out io.Writer) *TerminalApprover {
 	t := &TerminalApprover{out: out, lines: make(chan string, 64)}
 	go func() {
@@ -50,20 +52,26 @@ func (t *TerminalApprover) discardTyped() bool {
 // Ask implements Approver.
 func (t *TerminalApprover) Ask(ctx context.Context, r *Request) bool {
 	if !t.discardTyped() {
-		fmt.Fprintf(t.out, "\n  %s (%s) wants to connect as display %d, but there is no terminal input; request denied.\n", r.Name, r.Addr, r.Slot)
+		fmt.Fprintf(t.out, "\n  %s (%s) wants to connect as display %d (code %s). Answer in the spareglass window.\n", r.Name, r.Addr, r.Slot, r.Code)
+		<-ctx.Done()
 		return false
 	}
 	fmt.Fprintf(t.out, "\n  %s (%s) wants to connect as display %d.\n  Code shown on that screen: %s\n  Allow? [y/N] ",
 		r.Name, r.Addr, r.Slot, r.Code)
+	lines := t.lines
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Fprintln(t.out, "\n  (no answer; request expired)")
+			if errors.Is(context.Cause(ctx), ErrAnswered) {
+				fmt.Fprintln(t.out, "\n  (answered in the spareglass window)")
+			} else {
+				fmt.Fprintln(t.out, "\n  (no answer; request expired)")
+			}
 			return false
-		case line, ok := <-t.lines:
+		case line, ok := <-lines:
 			if !ok {
-				fmt.Fprintln(t.out, "\n  (no terminal input; request denied)")
-				return false
+				lines = nil // no terminal input any more; wait for an answer elsewhere
+				continue
 			}
 			switch strings.ToLower(strings.TrimSpace(line)) {
 			case "y", "yes":
