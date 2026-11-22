@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math"
 	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/naoking158/spareglass/internal/config"
 	"github.com/naoking158/spareglass/internal/media"
+	"github.com/naoking158/spareglass/internal/pairing"
 	"github.com/naoking158/spareglass/internal/vdisplay"
 )
 
@@ -46,13 +48,14 @@ func NewManager(cfg config.Config, p vdisplay.Provider, f media.Factory, log *sl
 
 // Session is one connected browser and its virtual display.
 type Session struct {
-	id    string
-	slot  int
-	m     *Manager
-	pc    *webrtc.PeerConnection
-	track *webrtc.TrackLocalStaticRTP
-	video *frameWriter
-	log   *slog.Logger
+	id     string
+	slot   int
+	device pairing.Device
+	m      *Manager
+	pc     *webrtc.PeerConnection
+	track  *webrtc.TrackLocalStaticRTP
+	video  *frameWriter
+	log    *slog.Logger
 
 	mu       sync.Mutex
 	dc       *webrtc.DataChannel
@@ -68,12 +71,12 @@ type Session struct {
 
 // Create answers a browser offer for display slot (0-based) and returns the
 // session id and answer SDP.
-func (m *Manager) Create(ctx context.Context, offer string, slot int, device string) (string, string, error) {
+func (m *Manager) Create(ctx context.Context, offer string, slot int, device pairing.Device) (string, string, error) {
 	if !m.takeSlot(slot) {
 		return "", "", ErrSlotInUse
 	}
 	id := newID()
-	s := &Session{id: id, slot: slot, m: m, log: m.log.With("session", id, "display", slot+1, "device", device)}
+	s := &Session{id: id, slot: slot, device: device, m: m, log: m.log.With("session", id, "display", slot+1, "device", device.Name)}
 
 	api, err := newAPI()
 	if err != nil {
@@ -166,6 +169,62 @@ func (m *Manager) CloseAll() {
 	}
 	m.mu.Unlock()
 	for _, s := range all {
+		s.Close()
+	}
+}
+
+// DisplayStatus describes one connected browser.
+type DisplayStatus struct {
+	Slot   int    `json:"slot"` // 1-based, as in the URL
+	Device string `json:"device"`
+	// Width and Height are the virtual display's size; 0 until it exists.
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+// Displays lists the connected browsers by slot.
+func (m *Manager) Displays() []DisplayStatus {
+	m.mu.Lock()
+	all := make([]*Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		all = append(all, s)
+	}
+	m.mu.Unlock()
+	list := make([]DisplayStatus, 0, len(all))
+	for _, s := range all {
+		st := DisplayStatus{Slot: s.slot + 1, Device: s.device.Name}
+		s.mu.Lock()
+		if s.display != nil {
+			st.Width, st.Height = s.display.Spec().Width, s.display.Spec().Height
+		}
+		s.mu.Unlock()
+		list = append(list, st)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Slot < list[j].Slot })
+	return list
+}
+
+// Close closes one session; an unknown id is ignored.
+func (m *Manager) Close(id string) {
+	m.mu.Lock()
+	s := m.sessions[id]
+	m.mu.Unlock()
+	if s != nil {
+		s.Close()
+	}
+}
+
+// CloseDevice closes the sessions of a paired browser, for when it is forgotten.
+func (m *Manager) CloseDevice(id string) {
+	m.mu.Lock()
+	var matched []*Session
+	for _, s := range m.sessions {
+		if s.device.ID == id {
+			matched = append(matched, s)
+		}
+	}
+	m.mu.Unlock()
+	for _, s := range matched {
 		s.Close()
 	}
 }

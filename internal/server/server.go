@@ -199,7 +199,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "no such display")
 		return
 	}
-	sid, answer, err := s.sessions.Create(r.Context(), req.SDP, req.Slot-1, dev.Name)
+	sid, answer, err := s.sessions.Create(r.Context(), req.SDP, req.Slot-1, dev)
 	switch {
 	case errors.Is(err, ErrSlotInUse):
 		writeError(w, http.StatusConflict, err.Error())
@@ -207,6 +207,18 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		s.log.Error("create session", "err", err)
 		writeError(w, http.StatusInternalServerError, "could not start session")
+		return
+	}
+	// The browser may have been forgotten while the session was negotiated;
+	// CloseDevice only reaches sessions that were already registered.
+	if _, ok, err := s.opts.Pairer.Store().Verify(id, secret); err != nil || !ok {
+		s.sessions.Close(sid)
+		if err != nil {
+			s.log.Error("read paired devices", "err", err)
+			writeError(w, http.StatusServiceUnavailable, "the host cannot read its list of paired browsers")
+		} else {
+			writeError(w, http.StatusUnauthorized, "this browser is not paired")
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, sessionResponse{ID: sid, SDP: answer})
