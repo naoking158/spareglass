@@ -1,9 +1,10 @@
 BIN := spareglass
+ARGS ?=
 
 .PHONY: run build test vet fmt doctor snapshot clean
 
-run:            ## start the host
-	go run ./cmd/$(BIN) serve -v
+run:            ## start the host; pass serve flags with ARGS="--fps 120"
+	go run ./cmd/$(BIN) serve -v $(ARGS)
 
 build:
 	go build -o bin/$(BIN) ./cmd/$(BIN)
