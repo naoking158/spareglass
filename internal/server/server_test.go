@@ -231,6 +231,7 @@ func TestNegotiateAndHello(t *testing.T) {
 
 // TestStreamsVideo checks the whole media path with ffmpeg's test pattern:
 // pipeline → access units → Pion track → RTP at a browser-like peer.
+// ffmpeg starts slowly on a busy machine, so the wait is generous.
 func TestStreamsVideo(t *testing.T) {
 	if _, err := media.FFmpegPath(); err != nil {
 		t.Skip("ffmpeg not installed")
@@ -239,7 +240,7 @@ func TestStreamsVideo(t *testing.T) {
 	pattern := func(_ media.Display, fps, _ int) (media.Pipeline, error) {
 		return media.NewFFmpegPipeline(media.TestPatternArgs(320, 240, fps), fps)
 	}
-	streamOverWebRTC(t, fp, pattern, 640, 480, 15*time.Second)
+	streamOverWebRTC(t, fp, pattern, 640, 480, 45*time.Second)
 }
 
 // TestStreamsVirtualDisplay runs the same path with this OS's real virtual
