@@ -546,3 +546,20 @@ func TestZeroPlayoutDelay(t *testing.T) {
 		}
 	}
 }
+
+func TestWantsHiDPI(t *testing.T) {
+	for _, c := range []struct {
+		w, h       int
+		dpr, scale float64
+		want       bool
+	}{
+		{1708, 1112, 2, 1, true},
+		{1708, 1112, 1, 1, false},
+		{1708, 1112, 2, 2, false},
+		{2560, 1440, 2, 1, false}, // 5120x2880 is more than VideoToolbox's H.264 encoder takes
+	} {
+		if got := wantsHiDPI(c.w, c.h, c.dpr, c.scale); got != c.want {
+			t.Errorf("wantsHiDPI(%d, %d, dpr %g, scale %g) = %v, want %v", c.w, c.h, c.dpr, c.scale, got, c.want)
+		}
+	}
+}

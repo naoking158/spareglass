@@ -33,6 +33,9 @@ func NewPipeline(d Display, fps, bitrateKbps int) (Pipeline, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bad display id %q", d.ID)
 	}
+	if d.Width <= 0 || d.Height <= 0 {
+		return nil, fmt.Errorf("bad display size %dx%d", d.Width, d.Height)
+	}
 	return &nativePipeline{displayID: uint32(id), width: d.Width, height: d.Height, fps: fps, kbps: bitrateKbps, stop: make(chan struct{})}, nil
 }
 
