@@ -47,7 +47,7 @@ type Request struct {
 	Slot    int
 	Created time.Time
 
-	seq      uint64 // order of Start calls; Created can tie on coarse clocks
+	seq      uint64 // order of Start calls
 	state    State
 	deviceID string
 	secret   string
