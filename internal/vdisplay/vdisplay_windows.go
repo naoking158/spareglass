@@ -126,7 +126,10 @@ func attach(dev string, s Spec) (string, error) {
 		shown, aerr := windisplay.Activate(dev)
 		if aerr == nil {
 			dev = shown
-			if aerr = setMode(dev, s, x); aerr != nil {
+			if x, aerr = rightEdge(dev); aerr == nil {
+				aerr = setMode(dev, s, x)
+			}
+			if aerr != nil {
 				aerr = errors.Join(aerr, windisplay.Detach(dev))
 			}
 		}

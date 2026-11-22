@@ -27,7 +27,7 @@ func (p Path) String() string {
 		src, p.SourceAdapter, p.SourceID, p.TargetAdapter, p.TargetID, p.Active, p.Available, p.TargetStatus)
 }
 
-type target struct {
+type endpoint struct {
 	adapter uint64
 	id      uint32
 }
@@ -35,9 +35,9 @@ type target struct {
 // pickPath finds the path that shows the target behind the GDI source
 // device. The target is any target on the adapter that owns device, so a
 // target paired with another source of that adapter is found as well.
-// active reports that the target is already on the desktop; otherwise the
-// returned path is inactive, preferring an available target and device's
-// own source.
+// active reports that a target of the adapter is already on the desktop, so
+// every source of the adapter is free otherwise; the returned path is then
+// inactive, preferring an available target and device's own source.
 func pickPath(paths []Path, device string) (i int, active bool, err error) {
 	adapters := map[uint64]bool{}
 	for _, p := range paths {
@@ -48,15 +48,15 @@ func pickPath(paths []Path, device string) (i int, active bool, err error) {
 	if len(adapters) == 0 {
 		return -1, false, fmt.Errorf("no display path has source %s", device)
 	}
-	targets := map[target]bool{}
+	targets := map[endpoint]bool{}
 	for _, p := range paths {
 		if adapters[p.SourceAdapter] && adapters[p.TargetAdapter] {
-			targets[target{p.TargetAdapter, p.TargetID}] = true
+			targets[endpoint{p.TargetAdapter, p.TargetID}] = true
 		}
 	}
 	best, bestScore := -1, -1
 	for j, p := range paths {
-		if !targets[target{p.TargetAdapter, p.TargetID}] {
+		if !adapters[p.SourceAdapter] || !targets[endpoint{p.TargetAdapter, p.TargetID}] {
 			continue
 		}
 		if p.Active {
