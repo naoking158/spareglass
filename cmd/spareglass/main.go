@@ -154,6 +154,8 @@ func runServe(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
+	ctx, quit := context.WithCancel(ctx) // the host page's Quit; signals stay handled during shutdown
+	defer quit()
 
 	pairer := pairing.NewPairer(ctx, store, pairing.NewTerminalApprover(os.Stdin, os.Stdout))
 	var factory media.Factory // nil: the platform pipeline
@@ -177,7 +179,7 @@ func runServe(args []string) error {
 		Token:          token,
 		URLs:           func() []string { return netutil.LANURLs(port, "/1") },
 		DisplayProblem: displayProblem,
-		Stop:           stop,
+		Stop:           quit,
 	}), ReadHeaderTimeout: 10 * time.Second}
 
 	errCh := make(chan error, 2)
