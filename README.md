@@ -125,7 +125,7 @@ command line tools are installed) uses the in-process pipeline. A build with
 (`brew install ffmpeg`); so does `--test-pattern`.
 
 ```sh
-make run       # start the host with verbose logs
+make run       # start the host with verbose logs (serve flags: make run ARGS="--fps 120")
 make test      # unit tests, including a full WebRTC negotiation
 make doctor
 make snapshot  # build the release archives into dist/ (needs goreleaser, macOS, mingw-w64, gh)
