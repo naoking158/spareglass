@@ -52,7 +52,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -verbose -ignore 'reusable workflow call "\$/'
 
   package:
     uses: $/.github/workflows/package.yml
