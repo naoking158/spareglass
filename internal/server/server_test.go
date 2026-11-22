@@ -231,7 +231,6 @@ func TestNegotiateAndHello(t *testing.T) {
 
 // TestStreamsVideo checks the whole media path with ffmpeg's test pattern:
 // pipeline → access units → Pion track → RTP at a browser-like peer.
-// ffmpeg starts slowly on a busy machine, so the wait is generous.
 func TestStreamsVideo(t *testing.T) {
 	if _, err := media.FFmpegPath(); err != nil {
 		t.Skip("ffmpeg not installed")
