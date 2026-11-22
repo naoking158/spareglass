@@ -83,7 +83,7 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 	reloads := vddReloads()
 	if err == nil {
 		mode, near := nearestMode(windisplay.Modes(dev), s.Width, s.Height)
-		if near || reloads >= maxReloads {
+		if near || (reloads >= maxReloads && mode != [2]int{}) {
 			s.Width, s.Height = mode[0], mode[1]
 			markVDDModeUsed(s.Width, s.Height)
 		} else {
@@ -92,7 +92,7 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 	}
 	if err != nil {
 		if reloads >= maxReloads {
-			return nil, fmt.Errorf("%w: the Virtual Display Driver's monitor is missing and the driver was already reloaded %d times since Windows started; restart Windows and try again", ErrUnavailable, reloads)
+			return nil, fmt.Errorf("%w: the Virtual Display Driver's monitor is missing or offers no mode, and the driver was already reloaded %d times since Windows started; restart Windows and try again", ErrUnavailable, reloads)
 		}
 		if err := setVDDReloads(reloads + 1); err != nil {
 			return nil, err
