@@ -99,6 +99,7 @@ func runServe(args []string) error {
 	fs.IntVar(&cfg.BitrateKbps, "bitrate", cfg.BitrateKbps, "target video bitrate in kbps")
 	fs.IntVar(&cfg.MaxClients, "max-clients", cfg.MaxClients, "maximum number of connected displays")
 	fs.Float64Var(&cfg.RenderScale, "render-scale", cfg.RenderScale, "virtual display size in points relative to the client's CSS pixels (1 = legible; macOS makes it HiDPI for Retina clients)")
+	fs.BoolVar(&cfg.NoHiDPI, "no-hidpi", cfg.NoHiDPI, "never make the display HiDPI, even for Retina clients (lower latency, softer text)")
 	verbose := fs.Bool("v", false, "verbose logging")
 	testPattern := fs.Bool("test-pattern", false, "stream ffmpeg's test pattern instead of the virtual display (to check the browser side)")
 	noOpen := fs.Bool("no-open", false, "do not open the host page in the default browser")

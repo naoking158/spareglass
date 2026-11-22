@@ -318,7 +318,8 @@ func wantsHiDPI(w, h int, dpr, scale float64) bool {
 // It recreates instead of resizing: on macOS a mode change can leave a
 // display that cannot be removed until the process exits.
 // When the client has at least two device pixels per display point, it asks
-// for a HiDPI display so the client gets one video pixel per device pixel.
+// for a HiDPI display so the client gets one video pixel per device pixel,
+// unless the config turns HiDPI off.
 func (s *Session) ensureDisplay(msg controlMsg) {
 	scale := s.m.cfg.RenderScale
 	w := int(math.Round(msg.Width * scale))
@@ -328,7 +329,8 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 		return
 	}
 	sizes := fallbackSizes(w, h)
-	req := displayRequest{sizes[0][0], sizes[0][1], wantsHiDPI(sizes[0][0], sizes[0][1], msg.DPR, scale)}
+	hiDPI := !s.m.cfg.NoHiDPI && wantsHiDPI(sizes[0][0], sizes[0][1], msg.DPR, scale)
+	req := displayRequest{sizes[0][0], sizes[0][1], hiDPI}
 
 	s.mu.Lock()
 	if s.closed || s.requested == req {

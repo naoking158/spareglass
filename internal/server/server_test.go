@@ -559,6 +559,18 @@ func TestZeroPlayoutDelay(t *testing.T) {
 	}
 }
 
+func TestNoHiDPIKeepsRetinaClientAtOnePixelPerPoint(t *testing.T) {
+	fp := &fakeProvider{opened: make(chan vdisplay.Spec, 1)}
+	cfg := config.Default()
+	cfg.NoHiDPI = true
+	m := NewManager(cfg, fp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s := &Session{m: m, slot: 0, log: m.log}
+	s.ensureDisplay(controlMsg{Type: "hello", Width: 1180, Height: 820, DPR: 2})
+	if spec := <-fp.opened; spec.HiDPI {
+		t.Fatalf("opened %+v with HiDPI, want 1 pixel per point", spec)
+	}
+}
+
 func TestWantsHiDPI(t *testing.T) {
 	for _, c := range []struct {
 		w, h       int
