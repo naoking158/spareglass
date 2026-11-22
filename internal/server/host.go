@@ -51,7 +51,7 @@ type hostDevice struct {
 }
 
 type answerRequest struct {
-	Allow bool `json:"allow"`
+	Allow *bool `json:"allow"`
 }
 
 // HostHandler serves the API of the page the person at the host uses to
@@ -70,11 +70,11 @@ func (s *Server) HostHandler(o HostOptions) http.Handler {
 	})
 	mux.HandleFunc("POST /api/pair/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var req answerRequest
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil || req.Allow == nil {
 			writeError(w, http.StatusBadRequest, `body must be {"allow": true|false}`)
 			return
 		}
-		err := s.opts.Pairer.Answer(r.PathValue("id"), req.Allow)
+		err := s.opts.Pairer.Answer(r.PathValue("id"), *req.Allow)
 		switch {
 		case errors.Is(err, pairing.ErrNoSuchRequest):
 			writeError(w, http.StatusNotFound, err.Error())
@@ -84,7 +84,7 @@ func (s *Server) HostHandler(o HostOptions) http.Handler {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		s.log.Info("pairing answered on the host page", "id", r.PathValue("id"), "allow", req.Allow)
+		s.log.Info("pairing answered on the host page", "id", r.PathValue("id"), "allow", *req.Allow)
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("DELETE /api/devices/{id}", func(w http.ResponseWriter, r *http.Request) {

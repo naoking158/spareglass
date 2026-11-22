@@ -211,9 +211,14 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	}
 	// The browser may have been forgotten while the session was negotiated;
 	// CloseDevice only reaches sessions that were already registered.
-	if _, ok, _ := s.opts.Pairer.Store().Verify(id, secret); !ok {
+	if _, ok, err := s.opts.Pairer.Store().Verify(id, secret); err != nil || !ok {
 		s.sessions.Close(sid)
-		writeError(w, http.StatusUnauthorized, "this browser is not paired")
+		if err != nil {
+			s.log.Error("read paired devices", "err", err)
+			writeError(w, http.StatusServiceUnavailable, "the host cannot read its list of paired browsers")
+		} else {
+			writeError(w, http.StatusUnauthorized, "this browser is not paired")
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, sessionResponse{ID: sid, SDP: answer})

@@ -90,6 +90,18 @@ func TestHostAPIRejectsForeignRequests(t *testing.T) {
 			}
 		}
 	}
+	if res := hostDo(t, http.MethodPost, host.URL+"/api/pair/x", map[string]bool{}, nil); res.StatusCode != http.StatusBadRequest {
+		t.Errorf("an answer without allow = %d, want 400", res.StatusCode)
+	}
+	s := New(Options{Config: config.Default(), Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/stop", nil)
+	req.RemoteAddr = "192.0.2.1:5000"
+	req.Header.Set(TokenHeader, testToken)
+	rec := httptest.NewRecorder()
+	s.HostHandler(HostOptions{Token: testToken, Stop: func() { t.Error("a LAN peer stopped the host") }}).ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("a request from the LAN = %d, want 403", rec.Code)
+	}
 	select {
 	case <-stopped:
 		t.Fatal("a rejected request stopped the host")
@@ -117,7 +129,7 @@ func TestHostAPIPairForgetStop(t *testing.T) {
 		t.Fatalf("state = %+v", st)
 	}
 
-	if res := hostDo(t, http.MethodPost, host.URL+"/api/pair/"+start.ID, answerRequest{Allow: true}, func(r *http.Request) {
+	if res := hostDo(t, http.MethodPost, host.URL+"/api/pair/"+start.ID, map[string]bool{"allow": true}, func(r *http.Request) {
 		r.Header.Set("Origin", host.URL)
 	}); res.StatusCode != http.StatusNoContent {
 		t.Fatalf("allow = %d", res.StatusCode)
