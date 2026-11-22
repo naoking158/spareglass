@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/rtcp"
@@ -72,6 +73,8 @@ type Session struct {
 	requested displayRequest
 
 	sent frameStats
+	// cursorSeq numbers cursor messages across display recreations.
+	cursorSeq atomic.Uint64
 }
 
 // Create answers a browser offer for display slot (0-based) and returns the
@@ -470,6 +473,12 @@ func (s *Session) sendCursor(d vdisplay.Display, stop <-chan struct{}) {
 		case <-stop:
 			return
 		case now := <-tick.C:
+			s.mu.Lock()
+			dc := s.cursorDC
+			s.mu.Unlock()
+			if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
+				continue
+			}
 			c, err := s.m.cursor(d.ID())
 			if err != nil {
 				c = media.Cursor{}
@@ -482,14 +491,8 @@ func (s *Session) sendCursor(d vdisplay.Display, stop <-chan struct{}) {
 			if next == msg && now.Sub(sent) < cursorResendInterval {
 				continue
 			}
-			s.mu.Lock()
-			dc := s.cursorDC
-			s.mu.Unlock()
-			if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
-				continue
-			}
 			msg = next
-			msg.Seq++
+			msg.Seq = s.cursorSeq.Add(1)
 			b, _ := json.Marshal(msg)
 			if err := dc.SendText(string(b)); err != nil {
 				s.log.Debug("send cursor", "err", err)

@@ -20,7 +20,8 @@ import (
 )
 
 // TestSendsCursor checks that a client with a "cursor" channel gets the
-// pointer position on its display, and a hidden pointer once it leaves.
+// pointer position on its display, a hidden pointer once it leaves, and
+// sequence numbers that keep growing when the display is recreated.
 func TestSendsCursor(t *testing.T) {
 	var onDisplay atomic.Bool
 	onDisplay.Store(true)
@@ -38,7 +39,7 @@ func TestSendsCursor(t *testing.T) {
 	factory := func(media.Display, int, int) (media.Pipeline, error) {
 		return &timedPipeline{durations: []time.Duration{time.Second}, stop: make(chan struct{})}, nil
 	}
-	srv := New(Options{Config: config.Default(), Pairer: pairer, Provider: &fakeProvider{opened: make(chan vdisplay.Spec, 1)},
+	srv := New(Options{Config: config.Default(), Pairer: pairer, Provider: &fakeProvider{opened: make(chan vdisplay.Spec, 4)},
 		NewPipeline: factory, Cursor: cursor, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(func() { ts.Close(); srv.Close(); cancel() })
@@ -109,5 +110,13 @@ func TestSendsCursor(t *testing.T) {
 	hidden := wait(func(c cursorMsg) bool { return !c.Visible })
 	if hidden.Seq <= first.Seq {
 		t.Fatalf("hidden seq %d not after visible seq %d", hidden.Seq, first.Seq)
+	}
+
+	b, _ := json.Marshal(controlMsg{Type: "resize", Width: 800, Height: 600, DPR: 1})
+	_ = control.SendText(string(b))
+	onDisplay.Store(true)
+	again := wait(func(c cursorMsg) bool { return c.Visible })
+	if again.Seq <= hidden.Seq {
+		t.Fatalf("seq after display recreation = %d, want > %d", again.Seq, hidden.Seq)
 	}
 }

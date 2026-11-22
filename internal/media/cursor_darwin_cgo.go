@@ -12,8 +12,8 @@ import (
 	"strconv"
 )
 
-// CursorPosition reads the pointer from the window server. The native
-// pipeline leaves the pointer out of the video, so the client draws it.
+// CursorPosition reads the pointer from the window server, for clients that
+// draw the pointer over the native pipeline's video.
 var CursorPosition CursorFunc = cursorPosition
 
 func cursorPosition(displayID string) (Cursor, error) {
