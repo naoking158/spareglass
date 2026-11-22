@@ -27,7 +27,7 @@ func TestPipelineCapturesPrimaryMonitor(t *testing.T) {
 			primary = m.Device
 		}
 	}
-	p, err := NewPipeline(primary, 30, 4000)
+	p, err := NewPipeline(Display{ID: primary}, 30, 4000)
 	if err != nil {
 		t.Fatal(err)
 	}

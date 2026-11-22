@@ -7,6 +7,6 @@ const InProcess = false
 
 // NewPipeline captures and encodes the display with ffmpeg. Builds with cgo
 // use ScreenCaptureKit and VideoToolbox in-process instead.
-func NewPipeline(displayID string, fps, bitrateKbps int) (Pipeline, error) {
-	return newFFmpegScreenPipeline(displayID, fps, bitrateKbps)
+func NewPipeline(d Display, fps, bitrateKbps int) (Pipeline, error) {
+	return newFFmpegScreenPipeline(d.ID, fps, bitrateKbps)
 }

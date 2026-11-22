@@ -213,8 +213,8 @@ func TestNegotiateAndHello(t *testing.T) {
 
 	select {
 	case spec := <-fp.opened:
-		if spec.Width != 1180 || spec.Height != 820 {
-			t.Fatalf("display size = %dx%d, want 1180x820", spec.Width, spec.Height)
+		if spec.Width != 1180 || spec.Height != 820 || !spec.HiDPI {
+			t.Fatalf("display = %dx%d HiDPI=%v, want 1180x820 HiDPI for a dpr 2 client", spec.Width, spec.Height, spec.HiDPI)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("host never opened a virtual display")
@@ -236,7 +236,7 @@ func TestStreamsVideo(t *testing.T) {
 		t.Skip("ffmpeg not installed")
 	}
 	fp := &fakeProvider{opened: make(chan vdisplay.Spec, 1)}
-	pattern := func(_ string, fps, _ int) (media.Pipeline, error) {
+	pattern := func(_ media.Display, fps, _ int) (media.Pipeline, error) {
 		return media.NewFFmpegPipeline(media.TestPatternArgs(320, 240, fps), fps)
 	}
 	streamOverWebRTC(t, fp, pattern, 640, 480, 15*time.Second)
@@ -378,7 +378,7 @@ func (p *timedPipeline) Close() error     { p.once.Do(func() { close(p.stop) });
 func TestRTPTimestampsFollowFrameTimes(t *testing.T) {
 	// Four entries, so the cycle stays aligned when the one-byte index wraps.
 	durations := []time.Duration{10 * time.Millisecond, 40 * time.Millisecond, 25 * time.Millisecond, 15 * time.Millisecond}
-	factory := func(string, int, int) (media.Pipeline, error) {
+	factory := func(media.Display, int, int) (media.Pipeline, error) {
 		return &timedPipeline{durations: durations, stop: make(chan struct{})}, nil
 	}
 	pkts := receiveVideo(t, nil, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, factory, 640, 480, 20, 15*time.Second).pkts
@@ -425,7 +425,7 @@ func (r *refusingProvider) Open(s vdisplay.Spec) (vdisplay.Display, error) {
 
 func TestFallsBackToSmallerDisplay(t *testing.T) {
 	rp := &refusingProvider{fakeProvider{opened: make(chan vdisplay.Spec, 1)}}
-	m := NewManager(config.Default(), rp, func(string, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m := NewManager(config.Default(), rp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s := &Session{m: m, slot: 0, log: m.log}
 	s.ensureDisplay(controlMsg{Type: "hello", Width: 3840, Height: 2160, DPR: 1})
 	select {
@@ -458,7 +458,7 @@ func (u *unavailableProvider) Open(vdisplay.Spec) (vdisplay.Display, error) {
 
 func TestUnavailableDisplayIsNotRetriedSmaller(t *testing.T) {
 	up := &unavailableProvider{}
-	m := NewManager(config.Default(), up, func(string, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m := NewManager(config.Default(), up, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s := &Session{m: m, slot: 0, log: m.log}
 	s.ensureDisplay(controlMsg{Type: "hello", Width: 3840, Height: 2160, DPR: 1})
 	if up.calls != 1 {
@@ -471,7 +471,7 @@ func TestUnavailableDisplayIsNotRetriedSmaller(t *testing.T) {
 func TestDisplaySizesAreAligned(t *testing.T) {
 	for _, size := range [][2]float64{{1010, 450}, {1011, 451}, {3846, 1603}, {1603, 3846}} {
 		rp := &refusingProvider{fakeProvider{opened: make(chan vdisplay.Spec, 1)}}
-		m := NewManager(config.Default(), rp, func(string, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		m := NewManager(config.Default(), rp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		s := &Session{m: m, slot: 0, log: m.log}
 		s.ensureDisplay(controlMsg{Type: "hello", Width: size[0], Height: size[1], DPR: 1})
 		select {
@@ -498,7 +498,7 @@ func (r *shortRefusingProvider) Open(s vdisplay.Spec) (vdisplay.Display, error) 
 
 func TestShortLandscapeScreenGetsDisplay(t *testing.T) {
 	rp := &shortRefusingProvider{fakeProvider{opened: make(chan vdisplay.Spec, 1)}}
-	m := NewManager(config.Default(), rp, func(string, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m := NewManager(config.Default(), rp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s := &Session{m: m, slot: 0, log: m.log}
 	s.ensureDisplay(controlMsg{Type: "hello", Width: 915, Height: 412, DPR: 1})
 	select {
@@ -526,7 +526,7 @@ func TestZeroPlayoutDelay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	factory := func(string, int, int) (media.Pipeline, error) {
+	factory := func(media.Display, int, int) (media.Pipeline, error) {
 		return &timedPipeline{durations: []time.Duration{16 * time.Millisecond}, stop: make(chan struct{})}, nil
 	}
 	r := receiveVideo(t, api, &fakeProvider{opened: make(chan vdisplay.Spec, 1)}, factory, 640, 480, 5, 15*time.Second)

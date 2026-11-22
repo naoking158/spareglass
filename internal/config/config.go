@@ -26,9 +26,11 @@ type Config struct {
 	BitrateKbps int `json:"bitrate_kbps"`
 	// MaxClients caps how many displays can be connected at once.
 	MaxClients int `json:"max_clients"`
-	// RenderScale sizes the virtual display relative to the client's CSS
-	// pixels. 1 keeps text legible; the client's devicePixelRatio gives the
-	// sharpest picture at a higher bitrate.
+	// RenderScale sizes the virtual display, in points, relative to the
+	// client's CSS pixels. 1 keeps text legible. On macOS a client with a
+	// devicePixelRatio of at least 2×RenderScale gets a HiDPI display, which
+	// is already sharp; elsewhere the devicePixelRatio gives the sharpest
+	// picture at a higher bitrate.
 	RenderScale float64 `json:"render_scale"`
 }
 

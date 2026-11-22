@@ -96,7 +96,7 @@ func runServe(args []string) error {
 	fs.IntVar(&cfg.FPS, "fps", cfg.FPS, "target frames per second")
 	fs.IntVar(&cfg.BitrateKbps, "bitrate", cfg.BitrateKbps, "target video bitrate in kbps")
 	fs.IntVar(&cfg.MaxClients, "max-clients", cfg.MaxClients, "maximum number of connected displays")
-	fs.Float64Var(&cfg.RenderScale, "render-scale", cfg.RenderScale, "virtual display size relative to the client's CSS pixels (1 = legible, devicePixelRatio = sharp)")
+	fs.Float64Var(&cfg.RenderScale, "render-scale", cfg.RenderScale, "virtual display size in points relative to the client's CSS pixels (1 = legible; macOS makes it HiDPI for Retina clients)")
 	verbose := fs.Bool("v", false, "verbose logging")
 	testPattern := fs.Bool("test-pattern", false, "stream ffmpeg's test pattern instead of the virtual display (to check the browser side)")
 	_ = fs.Parse(args)
@@ -149,7 +149,7 @@ func runServe(args []string) error {
 	pairer := pairing.NewPairer(ctx, store, pairing.NewTerminalApprover(os.Stdin, os.Stdout))
 	var factory media.Factory // nil: the platform pipeline
 	if *testPattern {
-		factory = func(_ string, fps, _ int) (media.Pipeline, error) {
+		factory = func(_ media.Display, fps, _ int) (media.Pipeline, error) {
 			return media.NewFFmpegPipeline(media.TestPatternArgs(1280, 720, fps), fps)
 		}
 	}

@@ -229,10 +229,13 @@ func (s *Session) handleControl(data []byte) {
 // ensureDisplay (re)creates the virtual display at the client's size.
 // It recreates instead of resizing: on macOS a mode change can leave a
 // display that cannot be removed until the process exits.
+// When the client has at least two device pixels per display point, it asks
+// for a HiDPI display so the client gets one video pixel per device pixel.
 func (s *Session) ensureDisplay(msg controlMsg) {
 	scale := s.m.cfg.RenderScale
 	w := int(math.Round(msg.Width * scale))
 	h := int(math.Round(msg.Height * scale))
+	hiDPI := msg.DPR >= 2*scale
 	if w < 320 || h < 240 {
 		s.send(statusMsg{Type: "status", State: "error", Detail: fmt.Sprintf("screen too small: %dx%d", w, h)})
 		return
@@ -260,6 +263,7 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 			Width:     size[0],
 			Height:    size[1],
 			RefreshHz: float64(s.m.cfg.FPS),
+			HiDPI:     hiDPI,
 		}
 		var err error
 		d, err = s.m.provider.Open(spec)
@@ -290,9 +294,10 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	s.display = d
 	s.mu.Unlock()
 	w, h = d.Spec().Width, d.Spec().Height
-	s.log.Info("virtual display created", "id", d.ID(), "size", fmt.Sprintf("%dx%d", w, h))
+	pw, ph := d.Spec().PixelSize()
+	s.log.Info("virtual display created", "id", d.ID(), "size", fmt.Sprintf("%dx%d", w, h), "pixels", fmt.Sprintf("%dx%d", pw, ph))
 
-	p, err := s.m.newPipeline(d.ID(), s.m.cfg.FPS, s.m.cfg.BitrateKbps)
+	p, err := s.m.newPipeline(media.Display{ID: d.ID(), Width: pw, Height: ph}, s.m.cfg.FPS, s.m.cfg.BitrateKbps)
 	if err != nil {
 		s.log.Warn("no capture pipeline", "err", err)
 		s.send(statusMsg{Type: "status", State: "display-only", Detail: err.Error(), Width: w, Height: h})

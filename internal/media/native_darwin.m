@@ -251,7 +251,7 @@ static SCDisplay *findDisplay(uint32_t displayID, NSString **err) {
 
 static void stopCapture(SGCapture *c);
 
-sgCapture *sgCaptureStart(uint32_t displayID, int fps, int kbps, uintptr_t handle, char **err) {
+sgCapture *sgCaptureStart(uint32_t displayID, int width, int height, int fps, int kbps, uintptr_t handle, char **err) {
 	@autoreleasepool {
 		NSString *e = nil;
 		SCDisplay *display = findDisplay(displayID, &e);
@@ -259,10 +259,7 @@ sgCapture *sgCaptureStart(uint32_t displayID, int fps, int kbps, uintptr_t handl
 			*err = copyCString(e);
 			return NULL;
 		}
-		CGDisplayModeRef mode = CGDisplayCopyDisplayMode(displayID);
-		size_t w = mode ? CGDisplayModeGetPixelWidth(mode) : (size_t)display.width;
-		size_t h = mode ? CGDisplayModeGetPixelHeight(mode) : (size_t)display.height;
-		if (mode) CGDisplayModeRelease(mode);
+		size_t w = (size_t)width, h = (size_t)height;
 
 		SGCapture *c = [SGCapture new];
 		c.handle = handle;

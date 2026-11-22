@@ -130,7 +130,7 @@ var errEnough = errors.New("enough")
 func streamFrames(t *testing.T, id, name string) {
 	t.Helper()
 	var out []byte
-	pl, err := media.NewPipeline(id, 30, 4000)
+	pl, err := media.NewPipeline(media.Display{ID: id}, 30, 4000)
 	if err != nil {
 		t.Fatal(err)
 	}

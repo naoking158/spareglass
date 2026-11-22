@@ -43,7 +43,7 @@ func TestEncoderEmitsEachFrameAtOnce(t *testing.T) {
 // TestRunAfterCloseIsQuiet: a pipeline closed before Run (the display was
 // recreated meanwhile) must not start capturing or report an error.
 func TestRunAfterCloseIsQuiet(t *testing.T) {
-	p, err := NewPipeline("4294967295", 60, 8000) // no such display
+	p, err := NewPipeline(Display{ID: "4294967295", Width: 640, Height: 480}, 60, 8000) // no such display
 	if err != nil {
 		t.Fatal(err)
 	}

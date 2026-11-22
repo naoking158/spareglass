@@ -12,19 +12,19 @@ import (
 // InProcess reports whether NewPipeline captures and encodes without ffmpeg.
 const InProcess = false
 
-// NewPipeline captures the monitor named displayID (e.g. \\.\DISPLAY3) with
+// NewPipeline captures the monitor named d.ID (e.g. \\.\DISPLAY3) with
 // ffmpeg's gdigrab over that monitor's desktop rectangle and encodes it with
 // the Media Foundation H.264 encoder.
-func NewPipeline(displayID string, fps, bitrateKbps int) (Pipeline, error) {
+func NewPipeline(d Display, fps, bitrateKbps int) (Pipeline, error) {
 	if _, err := FFmpegPath(); err != nil {
 		return nil, err
 	}
-	m, err := windisplay.Find(displayID)
+	m, err := windisplay.Find(d.ID)
 	if err != nil {
 		return nil, err
 	}
 	if !m.Attached || m.Width == 0 || m.Height == 0 {
-		return nil, fmt.Errorf("display %s is not part of the desktop", displayID)
+		return nil, fmt.Errorf("display %s is not part of the desktop", d.ID)
 	}
 	kbps := strconv.Itoa(bitrateKbps) + "k"
 	args := []string{
