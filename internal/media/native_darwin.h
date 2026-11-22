@@ -20,4 +20,8 @@ sgCapture *sgCaptureStart(uint32_t display_id, int width, int height, int fps, i
 void sgCaptureRequestKeyframe(sgCapture *c);
 void sgCaptureStop(sgCapture *c);
 
+// sgCursorPosition stores the pointer position in points relative to the
+// display's top-left corner and returns 1 when the pointer is on that display.
+int sgCursorPosition(uint32_t display_id, double *x, double *y);
+
 #endif

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/rtcp"
@@ -31,6 +32,7 @@ type Manager struct {
 	cfg         config.Config
 	provider    vdisplay.Provider
 	newPipeline media.Factory
+	cursor      media.CursorFunc
 	log         *slog.Logger
 
 	mu       sync.Mutex
@@ -38,12 +40,13 @@ type Manager struct {
 	slots    []bool
 }
 
-// NewManager builds a Manager.
-func NewManager(cfg config.Config, p vdisplay.Provider, f media.Factory, log *slog.Logger) *Manager {
+// NewManager builds a Manager. cursor reads the pointer for clients that
+// draw it themselves; nil means the video shows the pointer.
+func NewManager(cfg config.Config, p vdisplay.Provider, f media.Factory, cursor media.CursorFunc, log *slog.Logger) *Manager {
 	if f == nil {
 		f = media.NewPipeline
 	}
-	return &Manager{cfg: cfg, provider: p, newPipeline: f, log: log, sessions: map[string]*Session{}, slots: make([]bool, cfg.MaxClients)}
+	return &Manager{cfg: cfg, provider: p, newPipeline: f, cursor: cursor, log: log, sessions: map[string]*Session{}, slots: make([]bool, cfg.MaxClients)}
 }
 
 // Session is one connected browser and its virtual display.
@@ -59,14 +62,19 @@ type Session struct {
 
 	mu       sync.Mutex
 	dc       *webrtc.DataChannel
+	cursorDC *webrtc.DataChannel
 	display  vdisplay.Display
 	pipeline media.Pipeline
-	closed   bool
+	// stopCursor ends the pointer updates for the current display.
+	stopCursor chan struct{}
+	closed     bool
 	// requested is the last size the client asked for, so a repeated
 	// hello/resize with the same size is not retried (each failure costs ~5s).
 	requested displayRequest
 
 	sent frameStats
+	// cursorSeq numbers cursor messages across display recreations.
+	cursorSeq atomic.Uint64
 }
 
 // Create answers a browser offer for display slot (0-based) and returns the
@@ -116,14 +124,18 @@ func (m *Manager) Create(ctx context.Context, offer string, slot int, device pai
 	go s.readRTCP(sender)
 
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		if dc.Label() != "control" {
-			return
+		switch dc.Label() {
+		case "control":
+			s.mu.Lock()
+			s.dc = dc
+			s.mu.Unlock()
+			dc.OnMessage(func(msg webrtc.DataChannelMessage) { s.handleControl(msg.Data) })
+			dc.OnClose(func() { s.Close() })
+		case "cursor":
+			s.mu.Lock()
+			s.cursorDC = dc
+			s.mu.Unlock()
 		}
-		s.mu.Lock()
-		s.dc = dc
-		s.mu.Unlock()
-		dc.OnMessage(func(msg webrtc.DataChannelMessage) { s.handleControl(msg.Data) })
-		dc.OnClose(func() { s.Close() })
 	})
 	pc.OnConnectionStateChange(func(st webrtc.PeerConnectionState) {
 		s.log.Info("connection state", "state", st.String())
@@ -385,6 +397,10 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 		return
 	}
 	s.pipeline = p
+	if s.m.cursor != nil {
+		s.stopCursor = make(chan struct{})
+		go s.sendCursor(d, s.stopCursor)
+	}
 	s.mu.Unlock()
 	s.log.Info("capture pipeline started", "pipeline", fmt.Sprintf("%T", p))
 	s.send(statusMsg{Type: "status", State: "streaming", Width: w, Height: h})
@@ -407,6 +423,10 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 }
 
 func (s *Session) stopDisplayLocked() {
+	if s.stopCursor != nil {
+		close(s.stopCursor)
+		s.stopCursor = nil
+	}
 	if s.pipeline != nil {
 		_ = s.pipeline.Close()
 		s.pipeline = nil
@@ -416,6 +436,69 @@ func (s *Session) stopDisplayLocked() {
 			s.log.Warn("close virtual display", "err", err)
 		}
 		s.display = nil
+	}
+}
+
+// cursorMsg is what the host sends on the "cursor" data channel. That
+// channel is unordered and never retransmits, so the client drops a message
+// whose Seq is not newer than the last one it drew.
+type cursorMsg struct {
+	Seq uint64 `json:"seq"`
+	// X and Y are in display points from the top-left corner.
+	X       float64 `json:"x"`
+	Y       float64 `json:"y"`
+	Visible bool    `json:"visible"`
+}
+
+const (
+	// cursorPollInterval is how often the host reads the pointer (~120Hz).
+	cursorPollInterval = time.Second / 120
+	// cursorResendInterval repeats an unchanged position, so a lost
+	// message cannot leave the client's pointer wrong.
+	cursorResendInterval = 250 * time.Millisecond
+)
+
+// sendCursor sends the pointer position on display d to the client until
+// stop is closed: at once when it changes, and every cursorResendInterval
+// when it does not.
+func (s *Session) sendCursor(d vdisplay.Display, stop <-chan struct{}) {
+	tick := time.NewTicker(cursorPollInterval)
+	defer tick.Stop()
+	var (
+		msg  cursorMsg
+		sent time.Time
+	)
+	for {
+		select {
+		case <-stop:
+			return
+		case now := <-tick.C:
+			s.mu.Lock()
+			dc := s.cursorDC
+			s.mu.Unlock()
+			if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
+				continue
+			}
+			c, err := s.m.cursor(d.ID())
+			if err != nil {
+				c = media.Cursor{}
+			}
+			next := cursorMsg{X: math.Round(c.X*10) / 10, Y: math.Round(c.Y*10) / 10, Visible: c.OnDisplay}
+			if !next.Visible {
+				next.X, next.Y = 0, 0
+			}
+			next.Seq = msg.Seq
+			if next == msg && now.Sub(sent) < cursorResendInterval {
+				continue
+			}
+			msg = next
+			msg.Seq = s.cursorSeq.Add(1)
+			b, _ := json.Marshal(msg)
+			if err := dc.SendText(string(b)); err != nil {
+				s.log.Debug("send cursor", "err", err)
+			}
+			sent = now
+		}
 	}
 }
 
