@@ -68,8 +68,9 @@ type Session struct {
 	// stopCursor ends the pointer updates for the current display.
 	stopCursor chan struct{}
 	closed     bool
-	// requested is the last size the client asked for, so a repeated
-	// hello/resize with the same size is not retried (each failure costs ~5s).
+	// requested is the display the last hello/resize asked for, aligned as
+	// it is opened, so a repeat that aligns to the same display is not
+	// retried (each failure costs ~5s).
 	requested displayRequest
 
 	sent frameStats
@@ -322,18 +323,19 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	scale := s.m.cfg.RenderScale
 	w := int(math.Round(msg.Width * scale))
 	h := int(math.Round(msg.Height * scale))
-	hiDPI := wantsHiDPI(w, h, msg.DPR, scale)
 	if w < 320 || h < 240 {
 		s.send(statusMsg{Type: "status", State: "error", Detail: fmt.Sprintf("screen too small: %dx%d", w, h)})
 		return
 	}
+	sizes := fallbackSizes(w, h)
+	req := displayRequest{sizes[0][0], sizes[0][1], wantsHiDPI(sizes[0][0], sizes[0][1], msg.DPR, scale)}
 
 	s.mu.Lock()
-	if s.closed || s.requested == (displayRequest{w, h, hiDPI}) {
+	if s.closed || s.requested == req {
 		s.mu.Unlock()
 		return
 	}
-	s.requested = displayRequest{w, h, hiDPI}
+	s.requested = req
 	s.stopDisplayLocked()
 	s.mu.Unlock()
 
@@ -344,13 +346,13 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 		d       vdisplay.Display
 		lastErr error
 	)
-	for _, size := range fallbackSizes(w, h) {
+	for _, size := range sizes {
 		spec := vdisplay.Spec{
 			Name:      fmt.Sprintf("spareglass %d", s.slot+1), // stable per slot
 			Width:     size[0],
 			Height:    size[1],
 			RefreshHz: float64(s.m.cfg.FPS),
-			HiDPI:     hiDPI,
+			HiDPI:     req.hiDPI,
 		}
 		var err error
 		d, err = s.m.provider.Open(spec)

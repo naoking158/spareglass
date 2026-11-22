@@ -485,6 +485,18 @@ func TestDisplaySizesAreAligned(t *testing.T) {
 	}
 }
 
+// A resize to a size that aligns to the open display must not recreate it.
+func TestResizeToSameAlignedSizeKeepsDisplay(t *testing.T) {
+	fp := &fakeProvider{opened: make(chan vdisplay.Spec, 2)}
+	m := NewManager(config.Default(), fp, func(media.Display, int, int) (media.Pipeline, error) { return nil, media.ErrNotImplemented }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s := &Session{m: m, slot: 0, log: m.log}
+	s.ensureDisplay(controlMsg{Type: "hello", Width: 1181, Height: 821, DPR: 1})
+	s.ensureDisplay(controlMsg{Type: "resize", Width: 1182, Height: 820, DPR: 1})
+	if n := len(fp.opened); n != 1 {
+		t.Fatalf("Open called %d times, want 1", n)
+	}
+}
+
 // shortRefusingProvider rejects displays shorter than 450 pixels, as macOS
 // does for landscape virtual displays.
 type shortRefusingProvider struct{ fakeProvider }
