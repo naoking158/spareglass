@@ -371,6 +371,9 @@ function onResize() {
   resizeTimer = setTimeout(() => {
     if (control && control.readyState === "open") {
       control.send(JSON.stringify(screenInfo("resize")));
+      // The host may recreate the display; the next cursor message shows the arrow again.
+      cursor.visible = false;
+      placeCursor();
     }
   }, 400);
 }

@@ -33,9 +33,17 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "display %u not found\n", id);
 		return 1;
 	}
-	if (strcmp(argv[1], "at") == 0 && argc >= 5) {
+	if (strcmp(argv[1], "at") == 0) {
+		if (argc < 5) {
+			fprintf(stderr, "usage: mover at ID X Y\n");
+			return 2;
+		}
 		post(CGPointMake(b.origin.x + atof(argv[3]), b.origin.y + atof(argv[4])));
 		return 0;
+	}
+	if (strcmp(argv[1], "sweep") != 0) {
+		fprintf(stderr, "unknown command %s\n", argv[1]);
+		return 2;
 	}
 	double secs = atof(argv[3]);
 	double hz = argc >= 5 ? atof(argv[4]) : 120;
