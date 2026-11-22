@@ -32,6 +32,9 @@ func Run(w io.Writer, version string, p vdisplay.Provider) error {
 	} else {
 		fmt.Fprintln(w, "                  available")
 	}
+	if d, ok := p.(interface{ Diagnose(io.Writer) }); ok {
+		d.Diagnose(w)
+	}
 
 	switch ff, err := media.FFmpegPath(); {
 	case media.InProcess:

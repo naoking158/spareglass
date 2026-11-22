@@ -5,6 +5,7 @@ package vdisplay
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -101,7 +102,7 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 			return nil, err
 		}
 	}
-	if err := attach(dev, s); err != nil {
+	if dev, err = attach(dev, s); err != nil {
 		_ = windisplay.Detach(dev)
 		return nil, err
 	}
@@ -110,36 +111,41 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 }
 
 // attach sets dev to the spec's size right of the other monitors and checks
-// that Windows applied it.
-func attach(dev string, s Spec) error {
+// that Windows applied it. It returns the device that shows the monitor,
+// which differs from dev when SetDisplayConfig used another source.
+func attach(dev string, s Spec) (string, error) {
 	x, err := rightEdge(dev)
 	if err != nil {
-		return err
+		return dev, err
 	}
 	if err := setMode(dev, s, x); err != nil {
 		before := "unknown"
 		if m, ferr := windisplay.Find(dev); ferr == nil {
 			before = describe(m)
 		}
-		aerr := windisplay.Activate(dev)
+		shown, aerr := windisplay.Activate(dev)
 		if aerr == nil {
-			if aerr = setMode(dev, s, x); aerr != nil {
+			dev = shown
+			if x, aerr = rightEdge(dev); aerr == nil {
+				aerr = setMode(dev, s, x)
+			}
+			if aerr != nil {
 				aerr = errors.Join(aerr, windisplay.Detach(dev))
 			}
 		}
 		if aerr != nil {
-			return fmt.Errorf("%w; then %w (monitor before: %s)", err, aerr, before)
+			return dev, fmt.Errorf("%w; then %w (monitor before: %s)", err, aerr, before)
 		}
 		slog.Info("virtual display attached through SetDisplayConfig", "device", dev, "legacy_err", err)
 	}
 	m, err := windisplay.Find(dev)
 	if err != nil {
-		return err
+		return dev, err
 	}
 	if !m.Attached || m.Width != s.Width || m.Height != s.Height {
-		return fmt.Errorf("Windows set %s to %dx%d instead of %dx%d", dev, m.Width, m.Height, s.Width, s.Height)
+		return dev, fmt.Errorf("Windows set %s to %dx%d instead of %dx%d", dev, m.Width, m.Height, s.Width, s.Height)
 	}
-	return nil
+	return dev, nil
 }
 
 func setMode(dev string, s Spec, x int) error {
@@ -150,10 +156,14 @@ func setMode(dev string, s Spec, x int) error {
 }
 
 func describe(m windisplay.Monitor) string {
-	if !m.Attached {
-		return m.Device + " detached"
+	monitor := "no monitor"
+	if m.MonitorID != "" {
+		monitor = "monitor " + m.MonitorID
 	}
-	return fmt.Sprintf("%s %dx%d at %d,%d", m.Device, m.Width, m.Height, m.X, m.Y)
+	if !m.Attached {
+		return fmt.Sprintf("%s detached, flags %#x, %s", m.Device, m.Flags, monitor)
+	}
+	return fmt.Sprintf("%s %dx%d at %d,%d, flags %#x, %s", m.Device, m.Width, m.Height, m.X, m.Y, m.Flags, monitor)
 }
 
 // CloseAll detaches every Virtual Display Driver monitor, including ones left
@@ -205,18 +215,56 @@ func (d *vddDisplay) Close() error {
 }
 
 // vddDevice returns the device name of the driver's monitor; it changes
-// every time the driver reloads.
+// every time the driver reloads. When the driver lists several sources, it
+// prefers one on the desktop, then one with a monitor.
 func vddDevice() (string, error) {
 	list, err := windisplay.List()
 	if err != nil {
 		return "", err
 	}
+	best, bestScore := "", -1
 	for _, m := range list {
-		if m.Description == vddAdapter {
-			return m.Device, nil
+		if m.Description != vddAdapter {
+			continue
+		}
+		score := 0
+		if m.Attached {
+			score += 2
+		}
+		if m.MonitorID != "" {
+			score++
+		}
+		if score > bestScore {
+			best, bestScore = m.Device, score
 		}
 	}
-	return "", ErrNoDriver
+	if best == "" {
+		return "", ErrNoDriver
+	}
+	return best, nil
+}
+
+// Diagnose prints every display source, the display paths of the driver's
+// adapter, and the reload count, for "spareglass doctor".
+func (*vddProvider) Diagnose(w io.Writer) {
+	list, err := windisplay.List()
+	if err != nil {
+		fmt.Fprintf(w, "Displays:         %v\n", err)
+		return
+	}
+	for _, m := range list {
+		fmt.Fprintf(w, "Display:          %s (%s)\n", describe(m), m.Description)
+	}
+	if dev, err := vddDevice(); err == nil {
+		paths, err := windisplay.Paths(dev)
+		if err != nil {
+			fmt.Fprintf(w, "Display paths:    %v\n", err)
+		}
+		for _, p := range paths {
+			fmt.Fprintf(w, "Display path:     %s\n", p)
+		}
+	}
+	fmt.Fprintf(w, "Driver reloads:   %d since Windows started (limit %d)\n", vddReloads(), maxReloads)
 }
 
 // addVDDMode lists width×height in the driver settings, reloads the driver
