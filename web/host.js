@@ -76,6 +76,8 @@ const $ = (id) => document.getElementById(id);
 const token = decodeURIComponent(location.hash.slice(1));
 let timer = 0;
 let gone = false;
+let failures = 0;
+const maxFailures = 3;
 
 async function api(method, path, body) {
   const res = await fetch(path, {
@@ -184,9 +186,12 @@ async function refresh() {
   } catch (e) {
     if (gone) return;
     if (/: 403$/.test(e.message)) return showGone(t.noToken);
-    return showGone(t.lost);
+    if (++failures >= maxFailures) return showGone(t.lost);
+    timer = setTimeout(refresh, 1000);
+    return;
   }
   if (gone) return; // quit while this request was in flight
+  failures = 0;
   $("problem").hidden = !st.display_problem;
   $("problem").textContent = st.display_problem || "";
   renderPending(st.pending);
