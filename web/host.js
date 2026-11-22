@@ -75,6 +75,7 @@ for (const el of document.querySelectorAll("[data-t]")) el.textContent = t[el.da
 const $ = (id) => document.getElementById(id);
 const token = decodeURIComponent(location.hash.slice(1));
 let timer = 0;
+let gone = false;
 
 async function api(method, path, body) {
   const res = await fetch(path, {
@@ -96,6 +97,7 @@ function el(tag, attrs = {}, ...children) {
 }
 
 function showGone(text) {
+  gone = true;
   clearTimeout(timer);
   $("gone-text").textContent = text;
   $("gone").hidden = false;
@@ -180,9 +182,11 @@ async function refresh() {
   try {
     st = await api("GET", "/api/state");
   } catch (e) {
+    if (gone) return;
     if (/: 403$/.test(e.message)) return showGone(t.noToken);
     return showGone(t.lost);
   }
+  if (gone) return; // quit while this request was in flight
   $("problem").hidden = !st.display_problem;
   $("problem").textContent = st.display_problem || "";
   renderPending(st.pending);
