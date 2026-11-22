@@ -199,7 +199,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "no such display")
 		return
 	}
-	sid, answer, err := s.sessions.Create(r.Context(), req.SDP, req.Slot-1, dev.Name)
+	sid, answer, err := s.sessions.Create(r.Context(), req.SDP, req.Slot-1, dev)
 	switch {
 	case errors.Is(err, ErrSlotInUse):
 		writeError(w, http.StatusConflict, err.Error())
