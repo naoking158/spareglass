@@ -30,9 +30,6 @@ jobs:
       - run: go test -run TestCameUp .
         working-directory: internal/virtualdisplay
       - run: go build ./cmd/spareglass
-      - run: |
-          ! grep -q -- "--- SKIP" /dev/null
-          echo probe
 
   zizmor:
     runs-on: ubuntu-latest
