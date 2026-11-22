@@ -47,6 +47,7 @@ type Request struct {
 	Slot    int
 	Created time.Time
 
+	seq      uint64 // order of Start calls; Created can tie on coarse clocks
 	state    State
 	deviceID string
 	secret   string
@@ -74,6 +75,7 @@ type Pairer struct {
 	mu      sync.Mutex
 	reqs    map[string]*Request
 	pending int
+	started uint64
 	// asking is the request the approver is asking about now; stopAsking
 	// ends that question when the request is answered through Answer.
 	asking     *Request
@@ -104,7 +106,7 @@ func (p *Pairer) Start(name, addr string, slot int) (*Request, error) {
 	if p.pending >= maxPending {
 		return nil, ErrTooManyRequests
 	}
-	r := &Request{ID: randomHex(8), Code: fourDigits(), Name: name, Addr: addr, Slot: slot, Created: time.Now(), state: StatePending}
+	r := &Request{ID: randomHex(8), Code: fourDigits(), Name: name, Addr: addr, Slot: slot, Created: time.Now(), seq: p.started, state: StatePending}
 	select {
 	case p.queue <- r:
 	default:
@@ -112,6 +114,7 @@ func (p *Pairer) Start(name, addr string, slot int) (*Request, error) {
 	}
 	p.reqs[r.ID] = r
 	p.pending++
+	p.started++
 	return r, nil
 }
 
@@ -170,10 +173,10 @@ func (p *Pairer) Pending() []Request {
 	var list []Request
 	for _, r := range p.reqs {
 		if r.state == StatePending && time.Since(r.Created) <= RequestTTL {
-			list = append(list, Request{ID: r.ID, Code: r.Code, Name: r.Name, Addr: r.Addr, Slot: r.Slot, Created: r.Created, state: r.state})
+			list = append(list, Request{ID: r.ID, Code: r.Code, Name: r.Name, Addr: r.Addr, Slot: r.Slot, Created: r.Created, seq: r.seq, state: r.state})
 		}
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].Created.Before(list[j].Created) })
+	sort.Slice(list, func(i, j int) bool { return list[i].seq < list[j].seq })
 	return list
 }
 
