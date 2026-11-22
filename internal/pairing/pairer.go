@@ -138,14 +138,13 @@ func (p *Pairer) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case r := <-p.queue:
-			if p.skipEnded(r) {
-				continue
-			}
 			deadlineCtx, cancelDeadline := context.WithDeadline(ctx, r.Created.Add(RequestTTL))
 			askCtx, stop := context.WithCancelCause(deadlineCtx)
-			p.mu.Lock()
-			p.asking, p.stopAsking = r, stop
-			p.mu.Unlock()
+			if !p.startAsking(r, stop) {
+				stop(nil)
+				cancelDeadline()
+				continue
+			}
 			ok := p.approver.Ask(askCtx, r)
 			p.mu.Lock()
 			p.asking, p.stopAsking = nil, nil
@@ -218,15 +217,21 @@ func (p *Pairer) approveLocked(r *Request) {
 	p.finishLocked(r, StateApproved)
 }
 
-// skipEnded reports whether a queued request needs no question: it was
-// answered through Answer or expired while it waited in the queue.
-func (p *Pairer) skipEnded(r *Request) bool {
+// startAsking marks r as the request the approver is asked about, unless it
+// needs no question: it was answered through Answer or expired while it
+// waited in the queue. Both happen under one lock, so Answer either finds r
+// already ended or finds it being asked and stops the question.
+func (p *Pairer) startAsking(r *Request, stop context.CancelCauseFunc) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if r.state == StatePending && time.Since(r.Created) > RequestTTL {
 		p.finishLocked(r, StateExpired)
 	}
-	return r.state != StatePending
+	if r.state != StatePending {
+		return false
+	}
+	p.asking, p.stopAsking = r, stop
+	return true
 }
 
 func (p *Pairer) finishLocked(r *Request, st State) {

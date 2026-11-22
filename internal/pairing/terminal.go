@@ -70,7 +70,8 @@ func (t *TerminalApprover) Ask(ctx context.Context, r *Request) bool {
 			return false
 		case line, ok := <-lines:
 			if !ok {
-				lines = nil // no terminal input any more; wait for an answer elsewhere
+				lines = nil
+				fmt.Fprintln(t.out, "\n  (no terminal input; answer in the spareglass window)")
 				continue
 			}
 			switch strings.ToLower(strings.TrimSpace(line)) {

@@ -53,7 +53,11 @@ func TestAnswerWhileTerminalAsks(t *testing.T) {
 
 	asked, _ := p.Start("asked", "192.168.0.2", 1)
 	queued, _ := p.Start("queued", "192.168.0.3", 1)
+	deadline := time.Now().Add(2 * time.Second)
 	for !strings.Contains(out.String(), asked.Code) {
+		if time.Now().After(deadline) {
+			t.Fatal("the terminal never asked about the first request")
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	if got := p.Pending(); len(got) != 2 || got[0].ID != asked.ID || got[1].ID != queued.ID {
@@ -74,7 +78,7 @@ func TestAnswerWhileTerminalAsks(t *testing.T) {
 	if err := p.Answer(asked.ID, false); err == nil {
 		t.Fatal("answering a finished request should fail")
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline = time.Now().Add(2 * time.Second)
 	for !strings.Contains(out.String(), "answered in the spareglass window") && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
