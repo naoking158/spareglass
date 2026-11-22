@@ -32,6 +32,9 @@ type Config struct {
 	// is already sharp; elsewhere the devicePixelRatio gives the sharpest
 	// picture at a higher bitrate.
 	RenderScale float64 `json:"render_scale"`
+	// NoHiDPI gives every client a display with one pixel per point, even
+	// a Retina one that would get a HiDPI display: lower latency, softer text.
+	NoHiDPI bool `json:"no_hidpi,omitempty"`
 }
 
 // Default returns the built-in defaults.
