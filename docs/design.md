@@ -85,7 +85,7 @@ Host (Go 単一バイナリ)
 - API: `GET /api/state`、`POST /api/pair/{id}`（`{"allow":bool}`）、`DELETE /api/devices/{id}`、`POST /api/stop`。
   終了は Ctrl+C と同じ後始末の経路を通る。
 - 守り: 接続元が loopback、Host が `127.0.0.1` か `localhost`（DNS rebinding 対策）、Origin が一致（CSRF 対策）。
-  API は起動ごとの乱数トークンを `X-Spareglass-Token` ヘッダで要求する。トークンは URL の `#` 以降に載せ、サーバーのログや Referer に出さない。
+  API は起動ごとの乱数トークンを `X-Spareglass-Token` ヘッダで要求する。トークンは URL の `#` 以降に載せ、HTTP リクエストのログや Referer に出さない。
 - 再び開くときは、ターミナルに出る `Host page` の URL を `#` 以降まで含めて使う。
 
 ## 制御メッセージ（DataChannel "control"）

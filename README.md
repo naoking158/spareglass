@@ -109,13 +109,13 @@ Flags override the config file (`spareglass config path`).
 ## Security
 
 Only browsers you approve on the host page (or in the host terminal) can
-connect. Each approved
-browser holds a random credential in localStorage; the host keeps only its
-SHA-256 in `devices.json` next to the config file. Remove one on the host page, which also cuts its stream at once, or with
+connect. Each approved browser holds a random credential in localStorage; the
+host keeps only its SHA-256 in `devices.json` next to the config file. Remove
+one on the host page, which also cuts its stream at once, or with
 `spareglass devices revoke ID` (applies to a running host). The host page
 listens on `127.0.0.1` on a separate port, so other devices on the network
-cannot reach it, and its API requires the token in the page URL after `#`. Media is
-encrypted with DTLS-SRTP. Run spareglass only on networks you trust.
+cannot reach it, and its API requires the token in the page URL after `#`.
+Media is encrypted with DTLS-SRTP. Run spareglass only on networks you trust.
 
 ## Development
 
