@@ -64,7 +64,7 @@ type Session struct {
 	closed   bool
 	// requested is the last size the client asked for, so a repeated
 	// hello/resize with the same size is not retried (each failure costs ~5s).
-	requested [2]int
+	requested displayRequest
 
 	sent frameStats
 }
@@ -285,24 +285,43 @@ func (s *Session) handleControl(data []byte) {
 	}
 }
 
+// displayRequest is a display size in points and whether it was asked to be HiDPI.
+type displayRequest struct {
+	w, h  int
+	hiDPI bool
+}
+
+// maxHiDPIPixels caps the pixel count of a HiDPI display: VideoToolbox's
+// H.264 encoder accepts 3840x2400 but not 5120x2880.
+const maxHiDPIPixels = 3840 * 2400
+
+// wantsHiDPI reports whether a display of w x h points should be HiDPI for a
+// client with devicePixelRatio dpr at the given render scale.
+func wantsHiDPI(w, h int, dpr, scale float64) bool {
+	return dpr >= 2*scale && 4*w*h <= maxHiDPIPixels
+}
+
 // ensureDisplay (re)creates the virtual display at the client's size.
 // It recreates instead of resizing: on macOS a mode change can leave a
 // display that cannot be removed until the process exits.
+// When the client has at least two device pixels per display point, it asks
+// for a HiDPI display so the client gets one video pixel per device pixel.
 func (s *Session) ensureDisplay(msg controlMsg) {
 	scale := s.m.cfg.RenderScale
 	w := int(math.Round(msg.Width * scale))
 	h := int(math.Round(msg.Height * scale))
+	hiDPI := wantsHiDPI(w, h, msg.DPR, scale)
 	if w < 320 || h < 240 {
 		s.send(statusMsg{Type: "status", State: "error", Detail: fmt.Sprintf("screen too small: %dx%d", w, h)})
 		return
 	}
 
 	s.mu.Lock()
-	if s.closed || s.requested == [2]int{w, h} {
+	if s.closed || s.requested == (displayRequest{w, h, hiDPI}) {
 		s.mu.Unlock()
 		return
 	}
-	s.requested = [2]int{w, h}
+	s.requested = displayRequest{w, h, hiDPI}
 	s.stopDisplayLocked()
 	s.mu.Unlock()
 
@@ -319,6 +338,7 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 			Width:     size[0],
 			Height:    size[1],
 			RefreshHz: float64(s.m.cfg.FPS),
+			HiDPI:     hiDPI,
 		}
 		var err error
 		d, err = s.m.provider.Open(spec)
@@ -349,9 +369,10 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	s.display = d
 	s.mu.Unlock()
 	w, h = d.Spec().Width, d.Spec().Height
-	s.log.Info("virtual display created", "id", d.ID(), "size", fmt.Sprintf("%dx%d", w, h))
+	pw, ph := d.Spec().PixelSize()
+	s.log.Info("virtual display created", "id", d.ID(), "size", fmt.Sprintf("%dx%d", w, h), "pixels", fmt.Sprintf("%dx%d", pw, ph))
 
-	p, err := s.m.newPipeline(d.ID(), s.m.cfg.FPS, s.m.cfg.BitrateKbps)
+	p, err := s.m.newPipeline(media.Display{ID: d.ID(), Width: pw, Height: ph}, s.m.cfg.FPS, s.m.cfg.BitrateKbps)
 	if err != nil {
 		s.log.Warn("no capture pipeline", "err", err)
 		s.send(statusMsg{Type: "status", State: "display-only", Detail: err.Error(), Width: w, Height: h})

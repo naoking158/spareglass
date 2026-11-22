@@ -69,6 +69,7 @@ func (*vddProvider) Available() error {
 }
 
 func (p *vddProvider) Open(s Spec) (Display, error) {
+	s.HiDPI = false
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.open != nil {

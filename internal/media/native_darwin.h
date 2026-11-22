@@ -16,7 +16,7 @@ sgEncoder *sgEncoderNew(int width, int height, int fps, int kbps, uintptr_t hand
 int sgEncoderEncodeTestFrame(sgEncoder *e, int index, int64_t pts_ns);
 void sgEncoderFree(sgEncoder *e);
 
-sgCapture *sgCaptureStart(uint32_t display_id, int fps, int kbps, uintptr_t handle, char **err);
+sgCapture *sgCaptureStart(uint32_t display_id, int width, int height, int fps, int kbps, uintptr_t handle, char **err);
 void sgCaptureRequestKeyframe(sgCapture *c);
 void sgCaptureStop(sgCapture *c);
 

@@ -2,8 +2,6 @@ github.com/ebitengine/purego v0.11.3 h1:OB+JLpdm7ioymhyA+6s5kbb/uOuYycAgL8NNTFc5
 github.com/ebitengine/purego v0.11.3/go.mod h1:DCHPP08djqhNSoTfImcnHYQRZmd0qhakvrozqaEYhGQ=
 github.com/go-macos/objc v0.10.2 h1:WX8CsDT6SbDrIT2wHAZEQBhGcpKR750llRS4oAfX9ww=
 github.com/go-macos/objc v0.10.2/go.mod h1:68hzSUlhg5bFbg1kO0z4DM6xOk4B/IofuxdlyhHHtt8=
-github.com/go-macos/virtualdisplay v0.5.0 h1:V2TMkAXLUCYqZSfkfIz7YQkoh2+4/bz+ja4hvYoJut8=
-github.com/go-macos/virtualdisplay v0.5.0/go.mod h1:3hgrYzzH17hfjFnsZKq/kg0bIuB3mu2FK60BudhBqRc=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/pion/datachannel v1.6.3 h1:HZAYLpunVI0xi057ZiANl558d0uSpomcWw4UEPz3qXs=

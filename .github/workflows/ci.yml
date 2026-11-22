@@ -27,6 +27,8 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
       - run: go test -race ./...
+      - run: go test -run TestCameUp .
+        working-directory: internal/virtualdisplay
       - run: go build ./cmd/spareglass
 
   zizmor:

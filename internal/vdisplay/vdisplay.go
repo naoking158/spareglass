@@ -21,15 +21,28 @@ var ErrNotImplemented = errors.New("virtual displays are not implemented on this
 // is pointless.
 var ErrUnavailable = errors.New("virtual displays are unavailable")
 
-// Spec describes a display to create. Width and Height are in pixels.
+// Spec describes a display to create.
 type Spec struct {
 	// Name should be stable (e.g. "spareglass 1"): some OSes remember
 	// arrangement and color profiles per monitor identity.
-	Name      string
+	Name string
+	// Width and Height are the desktop size in points, which is what sets
+	// the size of the UI on the display.
 	Width     int
 	Height    int
 	RefreshHz float64
-	HiDPI     bool
+	// HiDPI asks for twice as many pixels as points in each direction
+	// (Retina). Providers that cannot do it create a 1:1 display, and
+	// Display.Spec reports which one was made.
+	HiDPI bool
+}
+
+// PixelSize returns the display's size in pixels.
+func (s Spec) PixelSize() (w, h int) {
+	if s.HiDPI {
+		return 2 * s.Width, 2 * s.Height
+	}
+	return s.Width, s.Height
 }
 
 // Display is a live virtual monitor.
@@ -37,6 +50,8 @@ type Display interface {
 	// ID identifies the display for the capture layer
 	// (CGDirectDisplayID on macOS, device name on Windows, PipeWire node on Linux).
 	ID() string
+	// Spec is the display that was made, which can differ from the one
+	// requested (HiDPI is false when the provider made a 1:1 display).
 	Spec() Spec
 	// Close removes the display. Callers recreate rather than resize:
 	// on macOS a mode change can make a display impossible to remove.

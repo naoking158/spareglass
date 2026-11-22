@@ -10,6 +10,7 @@ build:
 
 test:
 	go test -race ./...
+	cd internal/virtualdisplay && go test -run TestCameUp .
 
 vet:
 	go vet ./...

@@ -63,6 +63,14 @@ type Pipeline interface {
 	Close() error
 }
 
+// Display is the virtual display a pipeline captures.
+type Display struct {
+	// ID is the platform's display identifier (see vdisplay.Display.ID).
+	ID string
+	// Width and Height are the display's size in pixels.
+	Width, Height int
+}
+
 // Factory builds the pipeline for one virtual display. NewPipeline is the
 // platform default; tests substitute their own.
-type Factory func(displayID string, fps, bitrateKbps int) (Pipeline, error)
+type Factory func(d Display, fps, bitrateKbps int) (Pipeline, error)

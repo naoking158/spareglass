@@ -28,12 +28,15 @@ const InProcess = true
 // NewPipeline captures the display with ScreenCaptureKit and encodes it
 // with VideoToolbox in-process. The encoder holds no frames, and a keyframe
 // request re-encodes the last captured picture.
-func NewPipeline(displayID string, fps, bitrateKbps int) (Pipeline, error) {
-	id, err := strconv.ParseUint(displayID, 10, 32)
+func NewPipeline(d Display, fps, bitrateKbps int) (Pipeline, error) {
+	id, err := strconv.ParseUint(d.ID, 10, 32)
 	if err != nil {
-		return nil, fmt.Errorf("bad display id %q", displayID)
+		return nil, fmt.Errorf("bad display id %q", d.ID)
 	}
-	return &nativePipeline{displayID: uint32(id), fps: fps, kbps: bitrateKbps, stop: make(chan struct{})}, nil
+	if d.Width <= 0 || d.Height <= 0 {
+		return nil, fmt.Errorf("bad display size %dx%d", d.Width, d.Height)
+	}
+	return &nativePipeline{displayID: uint32(id), width: d.Width, height: d.Height, fps: fps, kbps: bitrateKbps, stop: make(chan struct{})}, nil
 }
 
 // nativeFrame is one access unit from the encoder; pts is the capture time.
@@ -75,8 +78,9 @@ func sgDeliverError(h C.uintptr_t, msg *C.char) {
 }
 
 type nativePipeline struct {
-	displayID uint32
-	fps, kbps int
+	displayID     uint32
+	width, height int
+	fps, kbps     int
 
 	mu      sync.Mutex
 	capture *C.sgCapture
@@ -93,7 +97,7 @@ func (p *nativePipeline) Run(ctx context.Context, out func(EncodedFrame) error) 
 	defer h.Delete()
 
 	var cerr *C.char
-	c := C.sgCaptureStart(C.uint32_t(p.displayID), C.int(p.fps), C.int(p.kbps), C.uintptr_t(h), &cerr)
+	c := C.sgCaptureStart(C.uint32_t(p.displayID), C.int(p.width), C.int(p.height), C.int(p.fps), C.int(p.kbps), C.uintptr_t(h), &cerr)
 	if c == nil {
 		defer C.free(unsafe.Pointer(cerr))
 		return errors.New(C.GoString(cerr))
