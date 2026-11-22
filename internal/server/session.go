@@ -62,6 +62,8 @@ type Session struct {
 	// requested is the last size the client asked for, so a repeated
 	// hello/resize with the same size is not retried (each failure costs ~5s).
 	requested [2]int
+
+	sent frameStats
 }
 
 // Create answers a browser offer for display slot (0-based) and returns the
@@ -186,7 +188,7 @@ func (m *Manager) freeSlot(i int) {
 
 // controlMsg is what the browser sends on the "control" data channel.
 type controlMsg struct {
-	Type        string  `json:"type"` // "hello" | "resize"
+	Type        string  `json:"type"` // "hello" | "resize" | "stats"
 	Width       float64 `json:"width"`
 	Height      float64 `json:"height"`
 	DPR         float64 `json:"dpr"`
@@ -212,6 +214,13 @@ func (s *Session) handleControl(data []byte) {
 	case "hello", "resize":
 		s.log.Info("client screen", "type", msg.Type, "css", fmt.Sprintf("%.0fx%.0f", msg.Width, msg.Height), "dpr", msg.DPR, "orientation", msg.Orientation)
 		s.ensureDisplay(msg)
+	case "stats":
+		var cs clientStats
+		if err := json.Unmarshal(data, &cs); err != nil {
+			s.log.Warn("bad stats message", "err", err)
+			return
+		}
+		s.log.Debug("stream stats", append(cs.attrs(), s.sent.take()...)...)
 	default:
 		s.log.Debug("ignored control message", "type", msg.Type)
 	}
@@ -300,12 +309,14 @@ func (s *Session) ensureDisplay(msg controlMsg) {
 	s.log.Info("capture pipeline started", "pipeline", fmt.Sprintf("%T", p))
 	s.send(statusMsg{Type: "status", State: "streaming", Width: w, Height: h})
 	go func() {
+		s.sent.restart()
 		frames := 0
 		err := p.Run(context.Background(), func(f media.EncodedFrame) error {
 			frames++
 			if frames == 1 {
 				s.log.Info("first frame sent", "bytes", len(f.Data), "keyframe", f.Keyframe)
 			}
+			s.sent.add(len(f.Data), f.Keyframe, time.Now())
 			return s.video.write(f)
 		})
 		if err != nil {
