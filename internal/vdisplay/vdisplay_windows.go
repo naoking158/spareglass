@@ -280,6 +280,9 @@ func windowsBuild() string {
 	}
 	defer k.Close()
 	display, _, _ := k.GetStringValue("DisplayVersion")
+	if display == "" {
+		display, _, _ = k.GetStringValue("ReleaseId")
+	}
 	build, _, _ := k.GetStringValue("CurrentBuild")
 	ubr, _, _ := k.GetIntegerValue("UBR")
 	return fmt.Sprintf("%s (build %s.%d)", display, build, ubr)
@@ -315,12 +318,14 @@ func vddDriverVersion() string {
 	return strings.Join(found, ", ")
 }
 
+const vddLogTail = 30
+
 // diagnoseVDDLog prints the end of the driver's newest log file, which says
 // why it did not create its monitor when its logging is on.
 func diagnoseVDDLog(w io.Writer) {
 	logs, _ := filepath.Glob(filepath.Join(filepath.Dir(vddSettingsPath()), "Logs", "log_*.txt"))
 	if len(logs) == 0 {
-		fmt.Fprintln(w, "Driver log:       none (turn on <logging> in the driver settings and restart Windows)")
+		fmt.Fprintln(w, "Driver log:       none (set <logging><logging>true</logging></logging> in the driver settings and restart Windows)")
 		return
 	}
 	sort.Strings(logs)
@@ -331,8 +336,8 @@ func diagnoseVDDLog(w io.Writer) {
 		return
 	}
 	lines := strings.Split(strings.TrimRight(string(b), "\r\n"), "\n")
-	fmt.Fprintf(w, "Driver log:       %s (last %d lines)\n", newest, min(len(lines), 30))
-	for _, l := range lines[max(0, len(lines)-30):] {
+	fmt.Fprintf(w, "Driver log:       %s (last %d lines)\n", newest, min(len(lines), vddLogTail))
+	for _, l := range lines[max(0, len(lines)-vddLogTail):] {
 		fmt.Fprintf(w, "                  %s\n", strings.TrimRight(l, "\r"))
 	}
 }
@@ -374,7 +379,7 @@ func addVDDMode(width, height, hz int) (string, error) {
 		last = err
 	}
 	if errors.Is(last, errNoMonitor) {
-		return "", fmt.Errorf("%w: %w %s after a reload, so the driver does not create its monitor on this computer; run \"spareglass doctor\" for the Windows build, driver version and driver log", ErrUnavailable, last, reloadLimit)
+		return "", fmt.Errorf("%w: %w %s after a reload; run \"spareglass doctor\" for the Windows build, driver version and driver log", ErrUnavailable, last, reloadLimit)
 	}
 	return "", fmt.Errorf("%w: %w %s after a reload; restart Windows and try again", ErrUnavailable, last, reloadLimit)
 }
