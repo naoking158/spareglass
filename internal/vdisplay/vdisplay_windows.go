@@ -249,7 +249,6 @@ func (*vddProvider) Diagnose(w io.Writer) {
 	list, err := windisplay.List()
 	if err != nil {
 		fmt.Fprintf(w, "Displays:         %v\n", err)
-		return
 	}
 	for _, m := range list {
 		fmt.Fprintf(w, "Display:          %s (%s)\n", describe(m), m.Description)
@@ -267,7 +266,7 @@ func (*vddProvider) Diagnose(w io.Writer) {
 	fmt.Fprintf(w, "Windows build:    %s\n", windowsBuild())
 	fmt.Fprintf(w, "Driver version:   %s\n", vddDriverVersion())
 	if b, err := os.ReadFile(vddSettingsPath()); err == nil {
-		fmt.Fprintf(w, "Driver modes:     %d in %s (the driver fails beyond about 90)\n", vddModes(string(b)), vddSettingsPath())
+		fmt.Fprintf(w, "Driver modes:     %d in %s (reported to fail beyond about 90)\n", vddModes(string(b)), vddSettingsPath())
 	}
 	diagnoseVDDLog(w)
 }
