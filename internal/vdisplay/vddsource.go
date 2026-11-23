@@ -45,13 +45,14 @@ func vddSource(list []windisplay.Monitor) (src windisplay.Monitor, ok bool) {
 }
 
 // vddConnected reports whether the driver's source src has a monitor: a
-// monitor ID, or a display path (from QueryDisplayConfig) whose source is src.
+// monitor ID, or a display path (from QueryDisplayConfig) from src to a
+// target with a monitor.
 func vddConnected(src windisplay.Monitor, paths []windisplay.Path) bool {
 	if src.MonitorID != "" {
 		return true
 	}
 	for _, p := range paths {
-		if p.Source == src.Device {
+		if p.Source == src.Device && p.Available {
 			return true
 		}
 	}

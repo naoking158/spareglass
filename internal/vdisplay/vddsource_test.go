@@ -49,6 +49,21 @@ func TestVDDConnectedByPathWithoutMonitorID(t *testing.T) {
 	if !vddConnected(src, paths) {
 		t.Fatal("vddConnected = false for a source with a display path")
 	}
+	paths[0].Available = false
+	if vddConnected(src, paths) {
+		t.Fatal("vddConnected = true for a source whose only path has no monitor")
+	}
+}
+
+func TestVDDOpenPlanWithNoReloadLeft(t *testing.T) {
+	mode, reload, err := vddOpenPlan(true, true, [][2]int{{800, 600}, {1920, 1080}}, 832, 1112, maxReloads)
+	if err != nil || reload || mode != [2]int{800, 600} {
+		t.Fatalf("mode %v, reload %v, err %v; want the nearest mode 800x600", mode, reload, err)
+	}
+	_, reload, err = vddOpenPlan(true, true, nil, 832, 1112, maxReloads)
+	if reload || !errors.Is(err, errNoCloseMode) {
+		t.Fatalf("no modes: reload %v, err %v; want errNoCloseMode", reload, err)
+	}
 }
 
 func TestVDDOpenPlanUsesTheSourceWithAMonitor(t *testing.T) {
