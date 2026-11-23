@@ -226,6 +226,15 @@ jobs:
           fi
           cat again.log
           grep -q "already installed" again.log
+      - name: doctor reports the installed driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/sg テスト/spareglass.exe" doctor </dev/null | tee doctor.log
+          grep -E "^Windows build: +[^ (]" doctor.log
+          grep -E "^Driver version: " doctor.log | grep -v "not found"
+          grep -E "^Driver modes: +[0-9]+ " doctor.log
+          grep -E "^Driver log: " doctor.log
       - name: Virtual display as a standard (non-admin) user
         shell: pwsh
         run: |
