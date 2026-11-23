@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf16"
@@ -241,7 +243,8 @@ func connectedNow(src windisplay.Monitor) bool {
 }
 
 // Diagnose prints every display source, the display paths of the driver's
-// adapter, and the reload count, for "spareglass doctor".
+// adapter, the reload count, the Windows build, the driver's version, the
+// modes its settings give and the end of its log, for "spareglass doctor".
 func (*vddProvider) Diagnose(w io.Writer) {
 	list, err := windisplay.List()
 	if err != nil {
@@ -261,6 +264,77 @@ func (*vddProvider) Diagnose(w io.Writer) {
 		}
 	}
 	fmt.Fprintf(w, "Driver reloads:   %d since Windows started (limit %d)\n", vddReloads(), maxReloads)
+	fmt.Fprintf(w, "Windows build:    %s\n", windowsBuild())
+	fmt.Fprintf(w, "Driver version:   %s\n", vddDriverVersion())
+	if b, err := os.ReadFile(vddSettingsPath()); err == nil {
+		fmt.Fprintf(w, "Driver modes:     %d in %s (the driver fails beyond about 90)\n", vddModes(string(b)), vddSettingsPath())
+	}
+	diagnoseVDDLog(w)
+}
+
+// windowsBuild returns the Windows version, build and update revision.
+func windowsBuild() string {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`, registry.QUERY_VALUE)
+	if err != nil {
+		return err.Error()
+	}
+	defer k.Close()
+	display, _, _ := k.GetStringValue("DisplayVersion")
+	build, _, _ := k.GetStringValue("CurrentBuild")
+	ubr, _, _ := k.GetIntegerValue("UBR")
+	return fmt.Sprintf("%s (build %s.%d)", display, build, ubr)
+}
+
+// vddDriverVersion returns the version and date of the installed Virtual
+// Display Driver from the display adapter class key.
+func vddDriverVersion() string {
+	const class = `SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}`
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, class, registry.ENUMERATE_SUB_KEYS)
+	if err != nil {
+		return err.Error()
+	}
+	defer k.Close()
+	names, _ := k.ReadSubKeyNames(-1)
+	var found []string
+	for _, n := range names {
+		sk, err := registry.OpenKey(k, n, registry.QUERY_VALUE)
+		if err != nil {
+			continue
+		}
+		desc, _, _ := sk.GetStringValue("DriverDesc")
+		if desc == vddAdapter {
+			ver, _, _ := sk.GetStringValue("DriverVersion")
+			date, _, _ := sk.GetStringValue("DriverDate")
+			found = append(found, fmt.Sprintf("%s (%s)", ver, date))
+		}
+		sk.Close()
+	}
+	if len(found) == 0 {
+		return "not found"
+	}
+	return strings.Join(found, ", ")
+}
+
+// diagnoseVDDLog prints the end of the driver's newest log file, which says
+// why it did not create its monitor when its logging is on.
+func diagnoseVDDLog(w io.Writer) {
+	logs, _ := filepath.Glob(filepath.Join(filepath.Dir(vddSettingsPath()), "Logs", "log_*.txt"))
+	if len(logs) == 0 {
+		fmt.Fprintln(w, "Driver log:       none (turn on <logging> in the driver settings and restart Windows)")
+		return
+	}
+	sort.Strings(logs)
+	newest := logs[len(logs)-1]
+	b, err := os.ReadFile(newest)
+	if err != nil {
+		fmt.Fprintf(w, "Driver log:       %v\n", err)
+		return
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\r\n"), "\n")
+	fmt.Fprintf(w, "Driver log:       %s (last %d lines)\n", newest, min(len(lines), 30))
+	for _, l := range lines[max(0, len(lines)-30):] {
+		fmt.Fprintf(w, "                  %s\n", strings.TrimRight(l, "\r"))
+	}
 }
 
 // addVDDMode lists width×height in the driver settings, reloads the driver
@@ -298,6 +372,9 @@ func addVDDMode(width, height, hz int) (string, error) {
 			return dev, nil
 		}
 		last = err
+	}
+	if errors.Is(last, errNoMonitor) {
+		return "", fmt.Errorf("%w: %w %s after a reload, so the driver does not create its monitor on this computer; run \"spareglass doctor\" for the Windows build, driver version and driver log", ErrUnavailable, last, reloadLimit)
 	}
 	return "", fmt.Errorf("%w: %w %s after a reload; restart Windows and try again", ErrUnavailable, last, reloadLimit)
 }
