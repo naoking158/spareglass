@@ -25,15 +25,14 @@ import (
 //
 // The driver offers only the resolutions listed in its vdd_settings.xml.
 // Open uses the mode the monitor offers that is closest to the requested
-// size; only when none is close does it add the size there and send
-// RELOAD_DRIVER over the driver's named pipe, at most maxReloads times per
-// Windows boot. It then sets the mode and places the monitor right of the others.
+// size; only when none is close, or the driver's source has no monitor, does
+// it add the size there and send RELOAD_DRIVER over the driver's named pipe,
+// at most maxReloads times per Windows boot. It then sets the mode and places the monitor right of the others.
 // The driver cannot go below one monitor, so Close detaches it from the
 // desktop instead of removing it.
 func Default() Provider { return &vddProvider{} }
 
 const (
-	vddAdapter  = "Virtual Display Driver"
 	vddPipe     = `\\.\pipe\MTTVirtualDisplayPipe`
 	vddRegKey   = `SOFTWARE\MikeTheTech\VirtualDisplayDriver`
 	vddDir      = `C:\VirtualDisplayDriver`
@@ -44,14 +43,6 @@ const (
 var ErrNoDriver = fmt.Errorf("%w: the Virtual Display Driver is not installed: start spareglass.exe from the extracted spareglass folder, or run \"spareglass install-driver\", to install it (see HOW-TO-USE.txt)", ErrUnavailable)
 
 var errNotRunning = fmt.Errorf("%w: the Virtual Display Driver is installed but not running: uninstall \"Virtual Display Driver\" in Settings > Apps and start spareglass.exe again (see HOW-TO-USE.txt)", ErrUnavailable)
-
-// maxReloads caps RELOAD_DRIVER per Windows boot, counted across processes
-// and users in a file next to the driver settings: the driver stops after a
-// few reloads (VirtualDrivers/Virtual-Display-Driver#351), so Open falls back
-// to the closest mode the monitor already offers.
-const maxReloads = 4
-
-var errNeedReload = errors.New("the requested size needs a driver reload")
 
 type vddProvider struct {
 	mu   sync.Mutex
@@ -76,23 +67,28 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 	if p.open != nil {
 		return nil, fmt.Errorf("%w: Windows supports one spareglass display at a time", ErrUnavailable)
 	}
-	dev, err := vddDevice()
-	if err != nil && !vddInstalled() {
+	list, err := windisplay.List()
+	if err != nil {
 		return nil, err
 	}
-	reloads := vddReloads()
-	if err == nil {
-		mode, near := nearestMode(windisplay.Modes(dev), s.Width, s.Height)
-		if near || (reloads >= maxReloads && mode != [2]int{}) {
-			s.Width, s.Height = mode[0], mode[1]
-			markVDDModeUsed(s.Width, s.Height)
-		} else {
-			err = errNeedReload
-		}
+	src, ok := vddSource(list)
+	if !ok && !vddInstalled() {
+		return nil, ErrNoDriver
 	}
+	connected := ok && connectedNow(src)
+	var modes [][2]int
+	if connected {
+		modes = windisplay.Modes(src.Device)
+	}
+	reloads := vddReloads()
+	mode, reload, err := vddOpenPlan(ok, connected, modes, s.Width, s.Height, reloads)
 	if err != nil {
-		if reloads >= maxReloads {
-			return nil, fmt.Errorf("%w: the Virtual Display Driver's monitor is missing or offers no mode, and the driver was already reloaded %d times since Windows started; restart Windows and try again", ErrUnavailable, reloads)
+		return nil, err
+	}
+	dev := src.Device
+	if reload {
+		if ok && !connected {
+			slog.Warn("reloading the Virtual Display Driver to get its monitor back", "source", describe(src), "reloads", reloads)
 		}
 		if err := setVDDReloads(reloads + 1); err != nil {
 			return nil, err
@@ -101,6 +97,9 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 			_ = detachVDDMonitors()
 			return nil, err
 		}
+	} else {
+		s.Width, s.Height = mode[0], mode[1]
+		markVDDModeUsed(s.Width, s.Height)
 	}
 	if dev, err = attach(dev, s); err != nil {
 		_ = windisplay.Detach(dev)
@@ -215,33 +214,30 @@ func (d *vddDisplay) Close() error {
 }
 
 // vddDevice returns the device name of the driver's monitor; it changes
-// every time the driver reloads. When the driver lists several sources, it
-// prefers one on the desktop, then one with a monitor.
+// every time the driver reloads. It fails when the driver has no monitor.
 func vddDevice() (string, error) {
 	list, err := windisplay.List()
 	if err != nil {
 		return "", err
 	}
-	best, bestScore := "", -1
-	for _, m := range list {
-		if m.Description != vddAdapter {
-			continue
-		}
-		score := 0
-		if m.Attached {
-			score += 2
-		}
-		if m.MonitorID != "" {
-			score++
-		}
-		if score > bestScore {
-			best, bestScore = m.Device, score
-		}
+	src, ok := vddSource(list)
+	switch {
+	case !ok:
+		return "", errNoSource
+	case !connectedNow(src):
+		return "", fmt.Errorf("%w on %s", errNoMonitor, src.Device)
 	}
-	if best == "" {
-		return "", ErrNoDriver
+	return src.Device, nil
+}
+
+// connectedNow reports whether src has a monitor; when the display paths
+// cannot be read, it assumes so and leaves the failure to attaching.
+func connectedNow(src windisplay.Monitor) bool {
+	if src.MonitorID != "" {
+		return true
 	}
-	return best, nil
+	paths, err := windisplay.Paths(src.Device)
+	return err != nil || vddConnected(src, paths)
 }
 
 // Diagnose prints every display source, the display paths of the driver's
@@ -255,8 +251,8 @@ func (*vddProvider) Diagnose(w io.Writer) {
 	for _, m := range list {
 		fmt.Fprintf(w, "Display:          %s (%s)\n", describe(m), m.Description)
 	}
-	if dev, err := vddDevice(); err == nil {
-		paths, err := windisplay.Paths(dev)
+	if src, ok := vddSource(list); ok {
+		paths, err := windisplay.Paths(src.Device)
 		if err != nil {
 			fmt.Fprintf(w, "Display paths:    %v\n", err)
 		}
@@ -290,14 +286,20 @@ func addVDDMode(width, height, hz int) (string, error) {
 	} else if err != nil {
 		return "", fmt.Errorf("%w: the Virtual Display Driver is not responding (%v); restart Windows and try again", ErrUnavailable, err)
 	}
+	last := errNoSource
 	deadline := time.Now().Add(reloadLimit)
 	for time.Now().Before(deadline) {
 		time.Sleep(250 * time.Millisecond)
-		if dev, err := vddDevice(); err == nil && windisplay.HasMode(dev, width, height) {
+		dev, err := vddDevice()
+		if err == nil && !windisplay.HasMode(dev, width, height) {
+			err = fmt.Errorf("the Virtual Display Driver's monitor does not offer %dx%d", width, height)
+		}
+		if err == nil {
 			return dev, nil
 		}
+		last = err
 	}
-	return "", fmt.Errorf("%w: the Virtual Display Driver did not offer %dx%d after a reload; restart Windows and try again", ErrUnavailable, width, height)
+	return "", fmt.Errorf("%w: %w %s after a reload; restart Windows and try again", ErrUnavailable, last, reloadLimit)
 }
 
 // markVDDModeUsed records in the driver settings that width×height was used
