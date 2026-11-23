@@ -25,9 +25,9 @@ import (
 //
 // The driver offers only the resolutions listed in its vdd_settings.xml.
 // Open uses the mode the monitor offers that is closest to the requested
-// size; only when none is close does it add the size there and send
-// RELOAD_DRIVER over the driver's named pipe, at most maxReloads times per
-// Windows boot. It then sets the mode and places the monitor right of the others.
+// size; only when none is close, or the driver's source has no monitor, does
+// it add the size there and send RELOAD_DRIVER over the driver's named pipe,
+// at most maxReloads times per Windows boot. It then sets the mode and places the monitor right of the others.
 // The driver cannot go below one monitor, so Close detaches it from the
 // desktop instead of removing it.
 func Default() Provider { return &vddProvider{} }
@@ -75,18 +75,19 @@ func (p *vddProvider) Open(s Spec) (Display, error) {
 	if !ok && !vddInstalled() {
 		return nil, ErrNoDriver
 	}
+	connected := ok && connectedNow(src)
 	var modes [][2]int
-	if src.MonitorID != "" {
+	if connected {
 		modes = windisplay.Modes(src.Device)
 	}
 	reloads := vddReloads()
-	mode, reload, err := vddOpenPlan(src, ok, modes, s.Width, s.Height, reloads)
+	mode, reload, err := vddOpenPlan(ok, connected, modes, s.Width, s.Height, reloads)
 	if err != nil {
 		return nil, err
 	}
 	dev := src.Device
 	if reload {
-		if !ok || src.MonitorID == "" {
+		if ok && !connected {
 			slog.Warn("reloading the Virtual Display Driver to get its monitor back", "source", describe(src), "reloads", reloads)
 		}
 		if err := setVDDReloads(reloads + 1); err != nil {
@@ -223,10 +224,20 @@ func vddDevice() (string, error) {
 	switch {
 	case !ok:
 		return "", errNoSource
-	case src.MonitorID == "":
+	case !connectedNow(src):
 		return "", fmt.Errorf("%w on %s", errNoMonitor, src.Device)
 	}
 	return src.Device, nil
+}
+
+// connectedNow reports whether src has a monitor; when the display paths
+// cannot be read, it assumes so and leaves the failure to attaching.
+func connectedNow(src windisplay.Monitor) bool {
+	if src.MonitorID != "" {
+		return true
+	}
+	paths, err := windisplay.Paths(src.Device)
+	return err != nil || vddConnected(src, paths)
 }
 
 // Diagnose prints every display source, the display paths of the driver's
@@ -288,7 +299,7 @@ func addVDDMode(width, height, hz int) (string, error) {
 		}
 		last = err
 	}
-	return "", fmt.Errorf("%w: %v %s after a reload; restart Windows and try again", ErrUnavailable, last, reloadLimit)
+	return "", fmt.Errorf("%w: %w %s after a reload; restart Windows and try again", ErrUnavailable, last, reloadLimit)
 }
 
 // markVDDModeUsed records in the driver settings that width×height was used

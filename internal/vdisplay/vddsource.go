@@ -44,17 +44,32 @@ func vddSource(list []windisplay.Monitor) (src windisplay.Monitor, ok bool) {
 	return src, ok
 }
 
+// vddConnected reports whether the driver's source src has a monitor: a
+// monitor ID, or a display path (from QueryDisplayConfig) whose source is src.
+func vddConnected(src windisplay.Monitor, paths []windisplay.Path) bool {
+	if src.MonitorID != "" {
+		return true
+	}
+	for _, p := range paths {
+		if p.Source == src.Device {
+			return true
+		}
+	}
+	return false
+}
+
 // vddOpenPlan decides how Open gets a w×h display from the driver's source
-// src (ok false when the driver lists none), whose monitor offers modes,
-// after reloads reloads this boot. It returns the mode to use, or reload
-// when the driver must be reloaded first. A source without a monitor cannot
-// show anything whatever modes it lists, so it needs a reload too. With no
-// reload left, it uses the nearest mode, or fails when there is none.
-func vddOpenPlan(src windisplay.Monitor, ok bool, modes [][2]int, w, h, reloads int) (mode [2]int, reload bool, err error) {
+// (found false when the driver lists none; connected when it has a monitor,
+// which offers modes) after reloads reloads this boot. It returns the mode
+// to use, or reload when the driver must be reloaded first. A source without
+// a monitor cannot show anything whatever modes it lists, so it needs a
+// reload too. With no reload left, it uses the nearest mode, or fails when
+// there is none.
+func vddOpenPlan(found, connected bool, modes [][2]int, w, h, reloads int) (mode [2]int, reload bool, err error) {
 	switch {
-	case !ok:
+	case !found:
 		err = errNoSource
-	case src.MonitorID == "":
+	case !connected:
 		err = errNoMonitor
 	default:
 		m, near := nearestMode(modes, w, h)
