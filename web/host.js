@@ -34,6 +34,11 @@ const TEXT = {
     noToken: "Open this page from the address spareglass shows when it starts.",
     failed: "That did not work. Try again.",
     titlePending: (n) => `(${n}) spareglass`,
+    network: {
+      mac_firewall_block_all: () => "The Mac firewall blocks all incoming connections, so other devices cannot connect. In System Settings → Network → Firewall, open Options and turn off \"Block all incoming connections\".",
+      mac_firewall_app_blocked: () => "The Mac firewall blocks spareglass, so other devices cannot connect. In System Settings → Network → Firewall, open Options and set spareglass to \"Allow incoming connections\".",
+      windows_network_public: (name) => `The network "${name}" is set to Public. If the other device cannot connect, set it to Private in Settings → Network & internet.`,
+    },
   },
   ja: {
     running: "動作中です。新しい機器を許可するときのために、このページは開いたままにしてください。",
@@ -64,6 +69,11 @@ const TEXT = {
     noToken: "spareglass を起動したときに開いたページから使ってください。",
     failed: "うまくいきませんでした。もう一度試してください。",
     titlePending: (n) => `(${n}) spareglass`,
+    network: {
+      mac_firewall_block_all: () => "Mac のファイアウォールが外部からの接続をすべてブロックしているため、もう一方の機器からつながりません。システム設定 → ネットワーク → ファイアウォール の「オプション」で「外部からの接続をすべてブロック」をオフにしてください。",
+      mac_firewall_app_blocked: () => "Mac のファイアウォールが spareglass をブロックしているため、もう一方の機器からつながりません。システム設定 → ネットワーク → ファイアウォール の「オプション」で spareglass を「受信接続を許可」にしてください。",
+      windows_network_public: (name) => `ネットワーク「${name}」が「パブリック」になっています。もう一方の機器からつながらないときは、設定 → ネットワークとインターネット で「プライベート」にしてください。`,
+    },
   },
 };
 
@@ -157,6 +167,13 @@ function renderURLs(urls) {
   $("other-urls").textContent = urls.length > 1 ? `${t.otherURLs} ${urls.slice(1).join("  ")}` : "";
 }
 
+function renderNetwork(list) {
+  if (!changed("network", list)) return;
+  const items = list.filter((p) => t.network[p.code]);
+  $("network-problems").hidden = items.length === 0;
+  $("network-problems").replaceChildren(...items.map((p) => el("li", {}, t.network[p.code](p.network || ""))));
+}
+
 function renderDisplays(list) {
   if (!changed("displays", list)) return;
   $("displays-empty").hidden = list.length > 0;
@@ -196,6 +213,7 @@ async function refresh() {
   $("problem").textContent = st.display_problem || "";
   renderPending(st.pending);
   renderURLs(st.urls);
+  renderNetwork(st.network_problems || []);
   renderDisplays(st.displays);
   renderDevices(st.devices);
   timer = setTimeout(refresh, 1000);
