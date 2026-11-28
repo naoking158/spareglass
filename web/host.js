@@ -34,6 +34,41 @@ const TEXT = {
     noToken: "Open this page from the address spareglass shows when it starts.",
     failed: "That did not work. Try again.",
     titlePending: (n) => `(${n}) spareglass`,
+    helpTitle: "If the other device cannot connect",
+    help: {
+      refused: {
+        title: "\"Connection refused\" (ERR_CONNECTION_REFUSED)",
+        steps: [
+          "Type the address shown above again, all the way to the end (including a number such as :7878). Use the address or QR code shown now, not a bookmark or history entry.",
+          "Start the address with http://, not https://.",
+          "If another address is listed under \"If it does not open, try\", try that one too.",
+        ],
+      },
+      timeout: {
+        title: "\"Took too long to respond\", or it keeps loading",
+        steps: {
+          all: [
+            "Check that both devices are on the same Wi-Fi (or the same phone hotspot).",
+          ],
+          mac: [
+            "If System Settings → Network → Firewall is on, open Options, turn off \"Block all incoming connections\" and set spareglass to \"Allow incoming connections\".",
+          ],
+          win: [
+            "In Settings → Network & internet, set the current network to Private. A network you join for the first time, including a phone hotspot, is often Public.",
+            "If you did not allow spareglass in the firewall alert, open Windows Security → Firewall & network protection → Allow an app through firewall, click Change settings and tick Private for spareglass.",
+          ],
+          end: [
+            "If you use a VPN, turn it off and try again.",
+          ],
+        },
+      },
+      black: {
+        title: "The screen stays black",
+        steps: [
+          "In System Settings → Privacy & Security → Screen & System Audio Recording, turn on the app you started spareglass from (Terminal), then quit that app and start spareglass again.",
+        ],
+      },
+    },
   },
   ja: {
     running: "動作中です。新しい機器を許可するときのために、このページは開いたままにしてください。",
@@ -64,6 +99,41 @@ const TEXT = {
     noToken: "spareglass を起動したときに開いたページから使ってください。",
     failed: "うまくいきませんでした。もう一度試してください。",
     titlePending: (n) => `(${n}) spareglass`,
+    helpTitle: "つながらないときは",
+    help: {
+      refused: {
+        title: "「接続が拒否されました」(ERR_CONNECTION_REFUSED) と出る",
+        steps: [
+          "上のアドレスを、最後まで (「:7878」のような数字も含めて) 入力し直します。ブックマークや履歴ではなく、今出ているアドレスか QR コードを使ってください。",
+          "「https://」ではなく「http://」で始めます。",
+          "「開けないときはこちらも試してください」に別のアドレスがあれば、そちらも試します。",
+        ],
+      },
+      timeout: {
+        title: "「応答時間が長すぎます」と出る、または読み込み中のまま",
+        steps: {
+          all: [
+            "2 台が同じ Wi-Fi (またはスマートフォンの同じテザリング) につながっているか確かめます。",
+          ],
+          mac: [
+            "システム設定 → ネットワーク → ファイアウォール がオンなら、「オプション」で「外部からの接続をすべてブロック」をオフにし、spareglass を「受信接続を許可」にします。",
+          ],
+          win: [
+            "設定 → ネットワークとインターネット で、今のネットワークを「プライベート」にします。初めてつないだネットワーク (テザリングを含む) は「パブリック」になっていることが多いです。",
+            "ファイアウォールの警告で許可しなかったときは、Windows セキュリティ → ファイアウォールとネットワーク保護 → ファイアウォールによるアプリケーションの許可 で「設定の変更」を押し、spareglass の「プライベート」にチェックを入れます。",
+          ],
+          end: [
+            "VPN を使っているときは、切ってから試します。",
+          ],
+        },
+      },
+      black: {
+        title: "画面が真っ黒のまま",
+        steps: [
+          "システム設定 → プライバシーとセキュリティ → 画面とシステムオーディオ録音 で、spareglass を起動したアプリ (ターミナル) をオンにします。そのアプリを一度終了してから、spareglass を起動し直してください。",
+        ],
+      },
+    },
   },
 };
 
@@ -73,6 +143,9 @@ document.documentElement.lang = lang;
 for (const el of document.querySelectorAll("[data-t]")) el.textContent = t[el.dataset.t];
 
 const $ = (id) => document.getElementById(id);
+
+// hostOS is the OS of this computer: the host page runs on the host itself.
+const hostOS = /^Mac/.test(navigator.platform) ? "mac" : /^Win/.test(navigator.platform) ? "win" : "other";
 const token = decodeURIComponent(location.hash.slice(1));
 let timer = 0;
 let gone = false;
@@ -201,6 +274,19 @@ async function refresh() {
   timer = setTimeout(refresh, 1000);
 }
 
+function renderHelp() {
+  const h = t.help;
+  const sections = [
+    h.refused,
+    { title: h.timeout.title, steps: [...h.timeout.steps.all, ...(h.timeout.steps[hostOS] || []), ...h.timeout.steps.end] },
+    ...(hostOS === "mac" ? [h.black] : []),
+  ];
+  $("help-body").replaceChildren(...sections.flatMap((sec) => [
+    el("h3", {}, sec.title),
+    el("ul", {}, ...sec.steps.map((step) => el("li", {}, step))),
+  ]));
+}
+
 $("stop").addEventListener("click", async () => {
   if (!confirm(t.stopConfirm)) return;
   try {
@@ -211,4 +297,5 @@ $("stop").addEventListener("click", async () => {
   }
 });
 
+renderHelp();
 refresh();
