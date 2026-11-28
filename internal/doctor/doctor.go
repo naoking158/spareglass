@@ -11,6 +11,7 @@ import (
 
 	"github.com/naoking158/spareglass/internal/config"
 	"github.com/naoking158/spareglass/internal/media"
+	"github.com/naoking158/spareglass/internal/netcheck"
 	"github.com/naoking158/spareglass/internal/vdisplay"
 )
 
@@ -57,6 +58,14 @@ func Run(w io.Writer, version string, p vdisplay.Provider) error {
 		}
 	default:
 		fmt.Fprintf(w, "Capture/encode:   NOT AVAILABLE on %s yet (ffmpeg found at %s)\n", runtime.GOOS, ff)
+	}
+
+	if ps := netcheck.Check(); len(ps) == 0 {
+		fmt.Fprintln(w, "Network:          no blocking setting found")
+	} else {
+		for _, p := range ps {
+			fmt.Fprintf(w, "Network:          BLOCKING: %s %s\n", p.Code, p.Network)
+		}
 	}
 
 	if p, err := config.Path(); err == nil {

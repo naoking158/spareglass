@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/naoking158/spareglass/internal/config"
 	"github.com/naoking158/spareglass/internal/doctor"
 	"github.com/naoking158/spareglass/internal/media"
+	"github.com/naoking158/spareglass/internal/netcheck"
 	"github.com/naoking158/spareglass/internal/netutil"
 	"github.com/naoking158/spareglass/internal/pairing"
 	"github.com/naoking158/spareglass/internal/server"
@@ -177,10 +180,11 @@ func runServe(args []string) error {
 	port := ln.Addr().(*net.TCPAddr).Port
 	token := randomToken()
 	hostSrv := &http.Server{Handler: srv.HostHandler(server.HostOptions{
-		Token:          token,
-		URLs:           func() []string { return netutil.LANURLs(port, "/1") },
-		DisplayProblem: displayProblem,
-		Stop:           quit,
+		Token:           token,
+		URLs:            func() []string { return netutil.LANURLs(port, "/1") },
+		DisplayProblem:  displayProblem,
+		NetworkProblems: watchNetwork(ctx, log),
+		Stop:            quit,
 	}), ReadHeaderTimeout: 10 * time.Second}
 
 	errCh := make(chan error, 2)
@@ -210,6 +214,30 @@ func runServe(args []string) error {
 	_ = hostSrv.Shutdown(shutdownCtx)
 	srv.Close() // removes every virtual display we created
 	return nil
+}
+
+// watchNetwork rechecks the network settings every 15 seconds, since the
+// host may join another network (a phone hotspot, say) while it runs, and
+// returns the latest result.
+func watchNetwork(ctx context.Context, log *slog.Logger) func() []netcheck.Problem {
+	var latest atomic.Pointer[[]netcheck.Problem]
+	empty := []netcheck.Problem{}
+	latest.Store(&empty)
+	go func() {
+		for {
+			ps := netcheck.Check()
+			if len(ps) > 0 && !slices.Equal(ps, *latest.Load()) {
+				log.Warn("network settings may stop display devices from connecting", "problems", ps)
+			}
+			latest.Store(&ps)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(15 * time.Second):
+			}
+		}
+	}()
+	return func() []netcheck.Problem { return *latest.Load() }
 }
 
 func randomToken() string {

@@ -12,6 +12,7 @@ import (
 
 	qrcode "github.com/skip2/go-qrcode"
 
+	"github.com/naoking158/spareglass/internal/netcheck"
 	"github.com/naoking158/spareglass/internal/pairing"
 	"github.com/naoking158/spareglass/web"
 )
@@ -29,16 +30,21 @@ type HostOptions struct {
 	URLs func() []string
 	// DisplayProblem says why virtual displays cannot be created, if they cannot.
 	DisplayProblem string
+	// NetworkProblems returns settings found to stop display devices from
+	// connecting. It is called on every state request, so it must be cheap.
+	// Optional.
+	NetworkProblems func() []netcheck.Problem
 	// Stop shuts the host down, like Ctrl+C. Required.
 	Stop func()
 }
 
 type hostState struct {
-	URLs           []string        `json:"urls"`
-	DisplayProblem string          `json:"display_problem,omitempty"`
-	Pending        []hostPending   `json:"pending"`
-	Devices        []hostDevice    `json:"devices"`
-	Displays       []DisplayStatus `json:"displays"`
+	URLs           []string           `json:"urls"`
+	DisplayProblem string             `json:"display_problem,omitempty"`
+	Network        []netcheck.Problem `json:"network_problems"`
+	Pending        []hostPending      `json:"pending"`
+	Devices        []hostDevice       `json:"devices"`
+	Displays       []DisplayStatus    `json:"displays"`
 }
 
 type hostPending struct {
@@ -137,7 +143,10 @@ func (s *Server) HostHandler(o HostOptions) http.Handler {
 }
 
 func (s *Server) hostState(o HostOptions) hostState {
-	st := hostState{URLs: o.URLs(), DisplayProblem: o.DisplayProblem, Pending: []hostPending{}, Devices: []hostDevice{}, Displays: s.sessions.Displays()}
+	st := hostState{URLs: o.URLs(), DisplayProblem: o.DisplayProblem, Network: []netcheck.Problem{}, Pending: []hostPending{}, Devices: []hostDevice{}, Displays: s.sessions.Displays()}
+	if o.NetworkProblems != nil {
+		st.Network = append(st.Network, o.NetworkProblems()...)
+	}
 	for _, r := range s.opts.Pairer.Pending() {
 		st.Pending = append(st.Pending, hostPending{ID: r.ID, Code: r.Code, Name: r.Name, Addr: r.Addr, Slot: r.Slot, Expires: r.Created.Add(pairing.RequestTTL)})
 	}
